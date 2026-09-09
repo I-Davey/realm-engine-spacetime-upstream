@@ -9,8 +9,9 @@ function fixture() {
   const sdk: any = {
     self: { getHP: () => 100, getX: () => 0, getY: () => 0, getLevel: () => 19, distanceTo: (p: any) => Math.hypot(p.x, p.y) },
     enemies: { getAll: () => enemies },
-    dodge: { clearWaypoint: vi.fn(), lockEnemy: vi.fn(), clearEnemyLock: vi.fn(), navigateToPosition: vi.fn() },
-    combat: { setAutoFire: vi.fn(), aimAt: vi.fn(), stopAiming: vi.fn() },
+    dodge: { setMode: vi.fn(), setSafeWalk: vi.fn(), setLockFollow: vi.fn(), setAutopilot: vi.fn(),
+      clearWaypoint: vi.fn(), lockEnemy: vi.fn(), clearEnemyLock: vi.fn(), navigateToPosition: vi.fn() },
+    combat: { setKillAura: vi.fn(), setAutoFire: vi.fn(), aimAt: vi.fn(), stopAiming: vi.fn() },
     world: { getSize: () => ({ width: 1000, height: 1000 }), getName: () => 'Realm', isRealm: () => true, isNexus: () => false,
       objects: { getAll: () => [], getById: () => quest, getQuestObject: () => quest, getBeacons: () => [] } },
     loot: { getNearbyBags: vi.fn(() => []), getBags: () => [], isUsefulStatPot: () => true,
@@ -25,6 +26,17 @@ function fixture() {
 }
 afterEach(() => vi.useRealTimers());
 describe('farmer control ownership', () => {
+  it('uses Spacetime on start and map change and releases goals on stop', () => {
+    const f = fixture(); f.farmer.onStart();
+    expect(f.sdk.dodge.setMode).toHaveBeenLastCalledWith('spacetime');
+    expect(f.sdk.dodge.setAutopilot).toHaveBeenCalledWith(false);
+    f.farmer.resetMap('Nexus');
+    expect(f.sdk.dodge.setMode).toHaveBeenCalledTimes(2);
+    f.farmer.onStop();
+    expect(f.sdk.dodge.clearEnemyLock).toHaveBeenCalled();
+    expect(f.sdk.dodge.clearWaypoint).toHaveBeenCalled();
+    expect(f.sdk.combat.setAutoFire).toHaveBeenLastCalledWith(false);
+  });
   it('engages at weapon-like range when there is no useful loot', () => {
     const f = fixture(); f.setEnemies([f.quest]); f.farmer.onLoop();
     expect(f.sdk.dodge.lockEnemy).toHaveBeenCalledWith(10);

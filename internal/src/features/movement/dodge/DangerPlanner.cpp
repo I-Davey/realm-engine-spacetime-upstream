@@ -8,6 +8,7 @@
 #include "RePP.h"
 #include "PJDodge.h"
 #include "features/movement/udodge/UDodge.h"
+#include "features/movement/spacetime/SpacetimeDodge.h"
 #include "DbgFileLog.h"
 #include "SteerInput.h"
 #include "GhostHit.h"
@@ -732,7 +733,8 @@ static void RunDodgeTickBody()
     const bool reppOn   = RePP::IsEnabled();
     const bool pjOn     = PJDodge::IsEnabled();
     const bool uniOn    = UDodge::IsEnabled();
-    if (xdodgeOn || rolloutOn || zaclinOn || reppOn || pjOn || uniOn) {
+    const bool spacetimeOn = SpacetimeDodge::IsEnabled();
+    if (xdodgeOn || rolloutOn || zaclinOn || reppOn || pjOn || uniOn || spacetimeOn) {
         // BootGate safety gate: on a patched/degraded game the entity/projectile
         // offsets are stale. The dodge sensors fill fixed-size buffers from counts
         // read at those offsets, so a garbage count overruns a buffer and hard-
@@ -775,7 +777,9 @@ static void RunDodgeTickBody()
         // shared external goal that dodge engines can consume.
         SteerInput::Tick();
         ResolveEnemyLock(px, py);
-        if (uniOn)          UDodge::Tick(p, px, py, dt);
+        DodgeRuntime::ObserveSpeed(px, py, dt * 1000.f);
+        if (spacetimeOn)    SpacetimeDodge::Tick(p, px, py, dt);
+        else if (uniOn)     UDodge::Tick(p, px, py, dt);
         else if (pjOn)      PJDodge::Tick(p, px, py, dt);
         else if (reppOn)    RePP::Tick(p, px, py, dt);
         else if (zaclinOn)  ZDodge::Tick(p, px, py, dt);
@@ -807,8 +811,12 @@ static void DodgeTickGuarded()
 
 void __fastcall Detour_AppEngineUpdate(void* __this, void* method)
 {
-    if (s_origUpdate) s_origUpdate(__this, method);
-    DodgeTickGuarded();
+    const bool spacetime = SpacetimeDodge::IsEnabled();
+    if (spacetime) { DodgeRuntime::BeginGameUpdate(); SpacetimeDodge::BeginGameUpdate(); }
+    __try {
+        if (s_origUpdate) s_origUpdate(__this, method);
+        DodgeTickGuarded();
+    } __finally { if (spacetime) DodgeRuntime::EndGameUpdate(); }
 }
 
 } // namespace

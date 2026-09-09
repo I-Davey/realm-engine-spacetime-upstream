@@ -277,7 +277,7 @@ static int32_t TryReadObjectId(void* base)
 // type whose x/y live inside the pointed-to object — NOT inline Vector2s on the
 // packet. Deref, then read x/y at the shape-resolved Sfx_Wpos* offsets.
 // Returns false for a null / unreadable / non-finite position; pos2 is legitimately
-// null for every effect except THROW, so the caller decides whether that matters.
+// absent for some effects, including THROW; callers must use effect semantics.
 static bool TryReadWorldPos(void* msg, uint32_t ptrOff, float& outX, float& outY)
 {
     void* wp = Mem::ReadPtr(msg, ptrOff);
@@ -589,22 +589,19 @@ static void __fastcall ShowEffectDetour(void* self, void* reader, void* method)
         return;
     }
 
-    // Duration: float field — if <= 120 treat as seconds, else already ms.
-    float lifeMs;
-    if (dur > 0.f && dur <= 120.f && std::isfinite(dur))
-        lifeMs = dur * 1000.f;
-    else if (dur > 120.f && dur <= 120000.f && std::isfinite(dur))
-        lifeMs = dur;
-    else
-        lifeMs = 2000.f;
+    const float lifeMs=AoeCapturePolicy::ShowEffectDurationMs(dur,effectType==kSfxType_Throw);
 
     float originX, originY, destX, destY;
     if (effectType == kSfxType_Throw) {
-        // THROW: pos1=source position, pos2=landing spot. Without a readable pos2
-        // there is no landing spot to stamp — drop rather than stamp the thrower.
-        if (!hasP2) return;
+        // Throw's Pos1 is the landing position. TargetObjectId identifies the
+        // origin; Pos2 may be absent or (0,0). Treating it as landing hid bombs.
+        // Protocol producer: wServer/logic/attack/ThrowAttack.cs (lcnvdl/rotmg-server).
+        if(!AoeCapturePolicy::ThrowLanding(p1x,p1y,destX,destY)) return;
         originX = p1x; originY = p1y;
-        destX   = p2x; destY   = p2y;
+        void* dict=Mem::ReadPtr(GameState::GetWorldMgr(),RuntimeOffsets::WM_AllDict);
+        Il2CppC::WalkDict(dict,4096,[&](int32_t key,void* entity) {
+            if(key==targetObjId) TryReadAnchorXY(entity,originX,originY);
+        });
         // Skip if GJJ/FHOH already recorded this same throwable
         if (g_CsInit) {
             EnterCriticalSection(&g_Cs);

@@ -5,6 +5,17 @@
 
 // Capture rules shared by the runtime hooks and host-side regression tests.
 namespace AoeCapturePolicy {
+// SHOWEFFECT Throw uses TargetObjectId for the thrower and Pos1 for landing.
+// Pos2 is effect-specific auxiliary data, not the destination of a Throw.
+inline bool ThrowLanding(float p1x,float p1y,float& x,float& y) {
+    x=p1x; y=p1y;
+    return std::isfinite(x) && std::isfinite(y);
+}
+inline float ShowEffectDurationMs(float duration,bool thrown) {
+    if(std::isfinite(duration) && duration>0.f && duration<=120000.f)
+        return duration<=120.f?duration*1000.f:duration;
+    return thrown?1500.f:2000.f;
+}
 inline float DurationMs(float ms, float fallback = 3000.f)
 {
     // Short flights are real. Replacing a 50 ms bomb with a 3 s countdown hides

@@ -1,15 +1,26 @@
 #pragma once
-
 namespace DodgeRuntime {
-
-bool  EnsureResolved();
+bool EnsureResolved();
 float GetDeltaTime();
 float GetMoveSpeedMul(void* player);
-// Move budget in tiles/sec from the game's own CalcMoveSpeed
-// (FKALGHJIADI::GCFKGLKAPND, name-stable across builds).
-// Returns a negative value when unavailable; zero is valid and must not fall back.
 float GetTilesPerSec(void* player);
-bool  CallMoveTo(void* player, float x, float y);
-void  Reset();
+bool CallMoveTo(void* player,float x,float y);
+void Reset();
 
-} // namespace DodgeRuntime
+// Spacetime's opt-in native input filter and single-update movement budget.
+using MovementFilter=bool(*)(void*,float,float,float&,float&);
+using MovementFeedback=void(*)(bool,float,float);
+bool EnsureMovementFilter(void* player,MovementFilter filter,MovementFeedback feedback);
+bool MovementFilterInstalled();
+void UninstallMovementFilter();
+void BeginGameUpdate();
+void EndGameUpdate();
+float GetFrameMoveMs();
+double GetMovementTimeMs();
+void AccountNativeMovement();
+float GetVerifiedTilesPerSec(void* player);
+void ObserveSpeed(float x,float y,float dtMs);
+float GetObservedTilesPerSec();
+enum class MoveResult { Applied, Deferred, Rejected };
+MoveResult CallMoveToFrame(void* player,float x,float y,float durationMs);
+}

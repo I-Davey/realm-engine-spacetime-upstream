@@ -1,6 +1,7 @@
 #include "pch-il2cpp.h"
 
 #include "features/combat/autoaim/core/WeaponProfile.h"
+#include "features/combat/autoaim/core/WeaponProfileMath.h"
 #include "features/combat/autoaim/core/AimMath.h"
 #include "RuntimeOffsets.h"
 #include "core/runtime/MemRead.h"
@@ -10,11 +11,39 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <windows.h>
 
 namespace {
 
 static std::atomic<void*> s_projProps{ nullptr };
 static WeaponProfile      s_profile;
+static uint64_t           s_lastSpawnMs = 0;
+static void*              s_shortestProjProps = nullptr;
+
+static float ReadLifetimeMsElement(void* props) {
+    __try {
+        auto* object=reinterpret_cast<Il2CppObject*>(props);
+        static Il2CppClass* cachedClass=nullptr;
+        static FieldInfo* field=nullptr;
+        if(object->klass!=cachedClass) {
+            cachedClass=object->klass;
+            field=il2cpp_class_get_field_from_name(cachedClass,"LifetimeMsElement");
+        }
+        if(!field) return 0.f;
+        Il2CppString* value=nullptr;
+        il2cpp_field_get_value(object,field,&value);
+        if(!value) return 0.f;
+        const int length=il2cpp_string_length(value);
+        const auto* chars=il2cpp_string_chars(value);
+        if(length<=0 || length>=32 || !chars) return 0.f;
+        char number[32]{};
+        for(int i=0;i<length;i++) { if(chars[i]>127) return 0.f; number[i]=static_cast<char>(chars[i]); }
+        char* end=nullptr;
+        const float ms=std::strtof(number,&end);
+        return end==number+length && std::isfinite(ms) && ms>0.f?ms:0.f;
+    } __except(EXCEPTION_EXECUTE_HANDLER) { return 0.f; }
+}
 
 static bool ReadPlayerTuners(void* local, float& outSpeedMul, float& outLifetimeMul, float& outRangeMul)
 {
@@ -25,6 +54,7 @@ static bool ReadPlayerTuners(void* local, float& outSpeedMul, float& outLifetime
         outLifetimeMul = *reinterpret_cast<float*>(p + RuntimeOffsets::Char_ProjLifetimeMul);  // raw-access-ok: hot-loop __try field sweep, per-field fallback would defeat the shared-SEH abort (plan 16)
     } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 
+    // See the note above: no known offset for the range multiplier on this build.
     outRangeMul = 1.f;
     __try {
         outRangeMul = *reinterpret_cast<float*>(reinterpret_cast<uint8_t*>(local) + RuntimeOffsets::Char_RangeMul);  // raw-access-ok: hot-loop __try field sweep, per-field fallback would defeat the shared-SEH abort (plan 16)
@@ -67,6 +97,7 @@ static void Recalculate(void* local)
             s_profile.rangeTiles  = rangeTiles;
             s_profile.avgSpeedTps = 200.f;
             s_profile.isResolved  = true;
+            s_profile.isParametric = true;
             return;
         }
 
@@ -76,7 +107,7 @@ static void Recalculate(void* local)
         if (rawSpeedI <= 0 || rawSpeedI >= 500000) return;
 
         const float rawSpeed   = static_cast<float>(rawSpeedI);
-        const float lifetimeMs = ProjectileTracking::NormalizeProjectileLifetimeMs(rawLife) * lifetimeMul;
+        const float lifetimeMs = WeaponProfileMath::LifetimeMs(rawLife,ReadLifetimeMsElement(pp)) * lifetimeMul;
         if (!(lifetimeMs > 1.f) || !std::isfinite(lifetimeMs)) return;
 
         float rangeTiles = AimMath::IntegratedProjectileDistance(
@@ -94,6 +125,7 @@ static void Recalculate(void* local)
         s_profile.rangeTiles  = rangeTiles;
         s_profile.avgSpeedTps = avgSpeedTps;
         s_profile.isResolved  = true;
+        s_profile.isParametric = false;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
     }
 }
@@ -105,7 +137,18 @@ namespace WeaponCalibrator {
 void OnProjectileSpawn(void* projProps, void* localPlayer)
 {
     if (!projProps) return;
+    const uint64_t now = GetTickCount64();
+    const bool newVolley = s_lastSpawnMs == 0 || now - s_lastSpawnMs > 120ULL;
+    s_lastSpawnMs = now;
+
+    const WeaponProfile previous = s_profile;
+    void* previousProps = s_shortestProjProps;
     s_projProps.store(projProps, std::memory_order_relaxed);
+
+    // A new local projectile may be from a newly equipped weapon. Invalidate
+    // the old calibration before reading it so a failed/changed projectile
+    // cannot leave the previous weapon's range displayed indefinitely.
+    s_profile = WeaponProfile{};
 
     // Read projId immediately while the pointer is hot.
     __try {
@@ -118,6 +161,18 @@ void OnProjectileSpawn(void* projProps, void* localPlayer)
     // Calibrate immediately — projProps is a managed IL2CPP object that may be
     // collected or reused before the next render tick, so we must read it now.
     Recalculate(localPlayer);
+
+    // A multi-projectile weapon may spawn different projectile definitions in
+    // the same volley. Preserve the shortest resolved reach so Target Assist
+    // never follows to a distance where only some shots connect.
+    if (newVolley || !previous.isResolved ||
+        (s_profile.isResolved && s_profile.rangeTiles < previous.rangeTiles)) {
+        s_shortestProjProps = projProps;
+    } else {
+        s_profile = previous;
+        s_shortestProjProps = previousProps;
+        s_projProps.store(previousProps, std::memory_order_relaxed);
+    }
 }
 
 void Tick(void* localPlayer)
@@ -136,6 +191,8 @@ void Reset()
 {
     s_projProps.store(nullptr, std::memory_order_relaxed);
     s_profile = WeaponProfile{};
+    s_lastSpawnMs = 0;
+    s_shortestProjProps = nullptr;
 }
 
 } // namespace WeaponCalibrator

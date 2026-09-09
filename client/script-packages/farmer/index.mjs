@@ -78,7 +78,7 @@ export default class Farmer {
 
   onStart() {
     RealmEngine.dodge.clearWaypoint();
-    RealmEngine.dodge.setMode('unified');
+    RealmEngine.dodge.setMode('spacetime');
     RealmEngine.dodge.setSafeWalk(true);
     RealmEngine.dodge.setLockFollow(false);
     RealmEngine.dodge.setAutopilot(false);
@@ -88,14 +88,14 @@ export default class Farmer {
     // KillAura override "wins whenever it is active, including when AutoAim's
     // master toggle is off"), so with it on our lock was set and then ignored —
     // shots went to KillAura's pick instead of the quest target. updateTarget()
-    // below owns the target: dodge.lockEnemy() drives the UDodge orbit and
+    // below owns the target: dodge.lockEnemy() supplies the Spacetime firing zone and
     // combat.aimAt() locks AutoAim onto the SAME id (SetLockTarget also forces
     // AutoAim into Locked mode). This requires the Auto Aim plugin to be enabled
     // — it owns AutoAim's master switch, which no script API can set.
     RealmEngine.combat.setKillAura(false);
     this.setFiring(false);
     RealmEngine.ui.status('Realm Farmer starting');
-    RealmEngine.log.info('Realm Farmer started with Unified Dodge, safe-walk, loot detours, and target switching.');
+    RealmEngine.log.info('Realm Farmer started with Spacetime Dodge: safe travel, firing-zone approach, and loot detours.');
   }
 
   onStop() {
@@ -107,6 +107,7 @@ export default class Farmer {
   }
 
   resetMap(name) {
+    RealmEngine.dodge.setMode('spacetime');
     this.mapName = name;
     this.lastCastleEscapeAt = null;
     this.beaconSkipReason = null;

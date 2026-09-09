@@ -1,5 +1,7 @@
 #include "pch-il2cpp.h"
 #include "TestTAB.h"
+#include "features/movement/spacetime/SpacetimeDodge.h"
+#include "features/combat/autoaim/TargetAssist.h"
 #include "DangerPlanner.h"
 #include "MovementRuntime.h"
 #include "MovementSpeed.h"
@@ -172,6 +174,7 @@ void ApplyDodgeModeWithEnter(DodgeMode nextMode)
     RePP::SetEnabled(nextMode == DodgeMode::RePP);
     PJDodge::SetEnabled(nextMode == DodgeMode::PJDodge);
     UDodge::SetEnabled(nextMode == DodgeMode::UDodge);
+    SpacetimeDodge::SetEnabled(nextMode == DodgeMode::Spacetime);
 
 
     DBG_FILE_LOG("[DodgeSwap] ApplyDodgeModeWithEnter nextMode=" << static_cast<int>(nextMode)
@@ -206,6 +209,9 @@ void ApplyDodgeModeWithEnter(DodgeMode nextMode)
         DangerPlanner::TryInstall();
     } else if (nextMode == DodgeMode::PJDodge) {
         PJDodge::OnEnter();
+        DangerPlanner::TryInstall();
+    } else if (nextMode == DodgeMode::Spacetime) {
+        SpacetimeDodge::OnEnter();
         DangerPlanner::TryInstall();
     } else if (nextMode == DodgeMode::UDodge) {
         UDodge::OnEnter();
@@ -660,6 +666,10 @@ void TestTAB::Tick(bool menuVisible)
             if (PJDodge::IsEnabled()) {
                 PJDodge::RenderDebugOverlay(camX, camY, angleRad, zoom, cx, cy);
             }
+            if (SpacetimeDodge::IsEnabled()) {
+                SpacetimeDodge::RenderDebugOverlay(camX, camY, angleRad, zoom, cx, cy);
+                TargetAssist::RenderOverlay(ImGui::GetBackgroundDrawList(),camX,camY,angleRad,zoom,cx,cy);
+            }
             if (UDodge::IsEnabled()) {
                 UDodge::RenderDebugOverlay(camX, camY, angleRad, zoom, cx, cy);
             }
@@ -962,9 +972,11 @@ void TestTAB::Tick(bool menuVisible)
             const bool mmbDown = (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0;
             const bool mmbEdge = mmbDown && !s_prevMmb;
             s_prevMmb = mmbDown;
-            if (mmbEdge && g_w2sValid && !menuVisible && !ImGui::GetIO().WantCaptureMouse)
-                ZDodge::Target::ProcessClick(g_mouseSX, g_mouseSY,
-                                                  camX, camY, angleRad, zoom, cx, cy);
+            if (mmbEdge && g_w2sValid && !menuVisible && !ImGui::GetIO().WantCaptureMouse) {
+                if (SpacetimeDodge::IsEnabled() && TargetAssist::IsEnabled())
+                    TargetAssist::ProcessMiddleClick(g_mouseSX,g_mouseSY,camX,camY,angleRad,zoom,cx,cy);
+                else ZDodge::Target::ProcessClick(g_mouseSX,g_mouseSY,camX,camY,angleRad,zoom,cx,cy);
+            }
         }
 
         // ── Player intent tracking ────────────────────────────────────────────
@@ -1002,7 +1014,7 @@ void TestTAB::RenderMovementSection()
     ImGui::Indent(8.f);
 
     int modeIdx = static_cast<int>(g_dodgeMode);
-    const char* modeLabels[] = { "Off", "RE-Plus", "RE-Sim (Grid)", "RE-Sim (Quadtree)", "zDodge", "RE++", "PJDodge", "Unified" };
+    const char* modeLabels[] = { "Off", "RE-Plus", "RE-Sim (Grid)", "RE-Sim (Quadtree)", "zDodge", "RE++", "PJDodge", "Unified", "Spacetime (experimental)" };
     ImGui::SetNextItemWidth(240.f);
     if (ImGui::Combo("Mode##dodgeModeCombo", &modeIdx, modeLabels, IM_ARRAYSIZE(modeLabels))) {
         ApplyDodgeModeWithEnter(static_cast<DodgeMode>(modeIdx));
@@ -1026,6 +1038,9 @@ void TestTAB::RenderMovementSection()
     } else if (g_dodgeMode == DodgeMode::PJDodge) {
         ImGui::Spacing();
         PJDodge::RenderSettings();
+    } else if (g_dodgeMode == DodgeMode::Spacetime) {
+        ImGui::Spacing();
+        SpacetimeDodge::RenderSettings();
     } else if (g_dodgeMode == DodgeMode::UDodge) {
         ImGui::Spacing();
         UDodge::RenderSettings();
@@ -1484,7 +1499,7 @@ namespace TestTAB {
     void      SetDodgeMode(DodgeMode m)
     {
         const int v = static_cast<int>(m);
-        ApplyDodgeModeWithEnter((v >= 0 && v <= static_cast<int>(DodgeMode::UDodge))
+        ApplyDodgeModeWithEnter((v >= 0 && v <= static_cast<int>(DodgeMode::Spacetime))
             ? m : DodgeMode::Off);
     }
     // SetDodgeModeWithEnter — IpcBridge calls this to route a dashboard dodge-mode

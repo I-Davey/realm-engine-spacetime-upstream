@@ -23,6 +23,8 @@
 #include "GhostHit.h"
 #include "AutoNexus.h"
 #include "gui/tabs/TestTAB.h"
+#include "features/movement/spacetime/SpacetimeDodge.h"
+#include "features/combat/autoaim/TargetAssist.h"
 #include "DangerPlanner.h"
 #include "XDodge.h"
 #include "RolloutDodge.h"
@@ -118,6 +120,7 @@ namespace {
             FH("scriptEnemyLockId", {
                 const int32_t id = f.Int();
                 DangerPlanner::SetEnemyLock(id);
+                TargetAssist::SetScriptTarget(id);
                 AutoAim::SetLockTarget(id > 0 ? id : -1);
             }),
             FH("scriptCombatTargetId", {
@@ -261,6 +264,33 @@ namespace {
         return ApplyFeatureTable(f, h, sizeof(h) / sizeof(h[0]));
     }
 
+    bool ApplySpacetimeFeature(const FeatureCommand& f)
+    {
+        static const FeatureHandler h[] = {
+            FH_BOOL("spacetimeDebugOverlay", SpacetimeDodge::SetDebugOverlay),
+            FH_BOOL("spacetimeShadowMode", SpacetimeDodge::SetShadowMode),
+            FH_FLOAT("spacetimeLookRange", SpacetimeDodge::SetLookRange),
+            FH_FLOAT("spacetimeContactScale", SpacetimeDodge::SetContactScale),
+            FH_FLOAT("spacetimeHorizonMs", SpacetimeDodge::SetHorizonMs),
+            FH_FLOAT("spacetimeMaxDistance", SpacetimeDodge::SetMaxDistance),
+            FH_FLOAT("spacetimeEnemyScale", SpacetimeDodge::SetEnemyScale),
+            FH_BOOL("spacetimeAvoidBlocks", SpacetimeDodge::SetAvoidBlocks),
+            FH_FLOAT("spacetimeSearchBudgetMs", SpacetimeDodge::SetSearchBudgetMs)
+        };
+        return ApplyFeatureTable(f, h, sizeof(h) / sizeof(h[0]));
+    }
+
+    bool ApplyTargetAssistFeature(const FeatureCommand& f)
+    {
+        static const FeatureHandler h[] = {
+            FH_BOOL("targetAssistEnabled", TargetAssist::SetEnabled),
+            FH_BOOL("targetAssistDebug", TargetAssist::SetDebugOverlay),
+            FH_FLOAT("targetAssistRangeFactor", TargetAssist::SetRangeSafetyFactor),
+            FH("targetAssistClear", { TargetAssist::ClearTarget(); })
+        };
+        return ApplyFeatureTable(f,h,sizeof(h)/sizeof(h[0]));
+    }
+
     bool ApplyUDodgeFeature(const FeatureCommand& f)
     {
         static const FeatureHandler h[] = {
@@ -363,6 +393,8 @@ namespace FeatureCommandRegistry {
         if (ApplyZDodgeFeature(feature)) return true;
         if (ApplyReppFeature(feature)) return true;
         if (ApplyPJDodgeFeature(feature)) return true;
+        if (ApplySpacetimeFeature(feature)) return true;
+        if (ApplyTargetAssistFeature(feature)) return true;
         if (ApplyUDodgeFeature(feature)) return true;
         if (ApplyRolloutFeature(feature)) return true;
         if (ApplyInputCameraSkinFeature(feature)) return true;

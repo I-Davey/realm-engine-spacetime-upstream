@@ -13,7 +13,7 @@ import { sendDllFeature } from './api.js';
 // survival-first candidate selection, intent ladder, escape search).
 // Unified (UDodge) merges PJDodge's predictive core with RePP's field
 // escape and autopilot goal layer.
-const DODGE_VALUES = ['off', 'xdodge', 'rollout-grid', 'rollout-quad', 'zdodge', 're-plus-plus', 'pj-dodge', 'unified'] as const;
+const DODGE_VALUES = ['off', 'xdodge', 'rollout-grid', 'rollout-quad', 'zdodge', 're-plus-plus', 'pj-dodge', 'unified', 'spacetime'] as const;
 type ActiveDodgeMode = Exclude<(typeof DODGE_VALUES)[number], 'off'>;
 type SettingConfig = Parameters<PluginContext['registerSetting']>[1];
 type SettingCallback = Parameters<PluginContext['registerSetting']>[2];
@@ -33,9 +33,17 @@ export function register(ctx: PluginContext) {
   ctx.name = 'Auto Dodge';
   ctx.category = 'combat';
 
+  function syncSpacetimeSettings() {
+    for (const k of ['spacetimeLookRange', 'spacetimeContactScale', 'spacetimeHorizonMs', 'spacetimeMaxDistance', 'spacetimeEnemyScale', 'spacetimeSearchBudgetMs'] as const)
+      sendDllFeature(k, ctx.getSetting<number>(k));
+    for (const k of ['spacetimeDebugOverlay', 'spacetimeShadowMode', 'spacetimeAvoidBlocks'] as const)
+      sendDllFeature(k, ctx.getSetting<boolean>(k) ? 1 : 0);
+  }
+
   function flush(forceOff = false) {
     const off = forceOff || !ctx.enabled;
     const mode = off ? 0 : modeToIdx(ctx.getSetting<string>('dodgeMode'));
+    if (!off && ctx.getSetting<string>('dodgeMode') === 'spacetime') syncSpacetimeSettings();
     sendDllFeature('autoDodgeMode', mode);
     updateMoveEnvelopeArming();
   }
@@ -104,8 +112,44 @@ export function register(ctx: PluginContext) {
       { label: 'RE++', value: 're-plus-plus' },
       { label: 'PJDodge', value: 'pj-dodge' },
       { label: 'Unified (RE++ x PJDodge)', value: 'unified' },
+      { label: 'Spacetime (late minimal movement, experimental)', value: 'spacetime' },
     ],
   }, () => flush());
+
+  registerModeSetting('spacetime', 'spacetimeDebugOverlay', {
+    label: 'Show movement & threat overlay', type: 'boolean', value: true,
+  }, (v: boolean) => sendDllFeature('spacetimeDebugOverlay', v ? 1 : 0));
+  registerModeSetting('spacetime', 'spacetimeShadowMode', {
+    label: 'Preview only (do not move)', type: 'boolean', value: false,
+  }, (v: boolean) => sendDllFeature('spacetimeShadowMode', v ? 1 : 0));
+  registerModeSetting('spacetime', 'spacetimeLookRange', {
+    label: 'Projectile look range (tiles)', type: 'range', value: 16, min: 2, max: 32, step: 0.5,
+    description: 'Includes paths entering this radius during lookahead. Fast incoming shots can still be included when their current position is outside it.',
+  }, (v: number) => sendDllFeature('spacetimeLookRange', v));
+  registerModeSetting('spacetime', 'spacetimeContactScale', {
+    label: 'Projectile contact size (hitbox multiplier)', type: 'range', value: 1, min: 0.25, max: 3, step: 0.05,
+    description: 'Changes the contact size used by the planner and debug view. Player stays a point; 1× uses the captured projectile threshold.',
+  }, (v: number) => sendDllFeature('spacetimeContactScale', v));
+  registerModeSetting('spacetime', 'spacetimeHorizonMs', {
+    label: 'Prediction lookahead (ms)', type: 'range', value: 800, min: 400, max: 4000, step: 25,
+    description: 'How far ahead to check, not how early to move. Known bombs can extend this; the in-game readout shows the effective value.',
+  }, (v: number) => sendDllFeature('spacetimeHorizonMs', v));
+  registerModeSetting('spacetime', 'spacetimeMaxDistance', {
+    label: 'Dodge distance budget (tiles)', type: 'range', value: 3, min: 0.25, max: 12, step: 0.25,
+    description: 'Limits the normal search; it does not force larger dodges. Known bombs can extend it to allow escape.',
+  }, (v: number) => sendDllFeature('spacetimeMaxDistance', v));
+  registerModeSetting('spacetime', 'spacetimeEnemyScale', {
+    label: 'Enemy avoidance size (multiplier)', type: 'range', value: 1, min: 0.1, max: 3, step: 0.05,
+    description: 'Changes enemy clearance in movement checks and the overlay. Harmless scenery keeps its physical size.',
+  }, (v: number) => sendDllFeature('spacetimeEnemyScale', v));
+  registerModeSetting('spacetime', 'spacetimeAvoidBlocks', {
+    label: 'Steer around harmless blocks while walking', type: 'boolean', value: false,
+    description: 'Off: leave harmless collisions to your walking input. Dodge routes still respect walls; damaging ground stays protected.',
+  }, (v: boolean) => sendDllFeature('spacetimeAvoidBlocks', v ? 1 : 0));
+  registerModeSetting('spacetime', 'spacetimeSearchBudgetMs', {
+    label: 'Route search budget (ms)', type: 'range', value: 4, min: 0.5, max: 12, step: 0.5,
+    description: 'More calculation time can find more routes but uses more of each frame. This does not change how late movement starts.',
+  }, (v: number) => sendDllFeature('spacetimeSearchBudgetMs', v));
 
   // Cap FPS to 60 while Auto Dodge is on (the fps-setter behaviour, baked
   // in — no separate plugin needed). On → targetFrameRate 60; off →

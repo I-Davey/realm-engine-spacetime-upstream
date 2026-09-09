@@ -599,9 +599,17 @@ inline float MinChebOnSegment(float x0, float y0, float x1, float y1)
 struct EnemyBlocker {
     Vec2  pos{};
     float radius = 0.5f;
+    // Static scenery constrains routes without triggering manual steering.
+    bool passiveScenery = false;
 };
 
 struct Settings {
+    float captureRangeTiles = 16.f;
+    float captureHorizonMs = 1050.f;
+    float enemyAvoidanceScale = 1.f;
+    // Opt-in for consumers which share DashDodge's point-player hit threshold.
+    // Legacy UDodge retains its existing source selection by default.
+    bool projectileCollisionThreshold = false;
     float hitScale    = 1.0f;    // × per-shot hit threshold [0.25, 2.5]
     float positionUncertainty = 0.f; // local desired vs server-visible MOVE position [0, .35]
     bool  safeWalk    = true;    // avoid damaging ground in path checks
@@ -631,6 +639,11 @@ struct Settings {
     int   planRadius = 20;   // planner window radius (grid cells) [8, 40]
                              // shrinks the rasterized window to cut cost
 };
+
+inline float EnemyAvoidanceRadius(const EnemyBlocker& enemy,const Settings& settings) {
+    const float scale=enemy.passiveScenery?1.f:settings.enemyAvoidanceScale;
+    return (enemy.radius+kUPlayerHalf)*scale;
+}
 
 // Host environment probe (kept as function pointers so the core stays free of
 // game headers and unit-testable).
@@ -697,8 +710,13 @@ constexpr float kHugeClearance    = 1.0e9f; // "no danger anywhere" sentinel
 constexpr float kServerTickSec    = 0.2f;   // planning quantum: one server tick of motion
 
 struct LaneThreat {
+    float damageEstimate = -1.f; // raw projectile damage; negative = unavailable
     bool beam = false; // all points are occupied simultaneously, not a moving head
     float remainingLifeMs = -1.f; // known remaining lifetime; negative means unavailable
+    // Runtime-verified constant motion only. Packet guesses and curved models
+    // must not authorize a straight continuation after their captured samples.
+    bool hasLinearMotion = false;
+    Vec2 linearVelocity{}; // tiles/ms, from the verified trajectory
     int32_t  bulletId      = 0;   // identity for mid-tick re-anchoring...
     int32_t  attackerObjId = 0;   // ...(bulletId alone is not globally unique)
     uint32_t ownerObjId    = 0;
@@ -785,12 +803,14 @@ inline bool CanOccupyAt(const MapInput& in, Vec2 pos)
 inline bool OccupancyPathClear(const MapInput& in, Vec2 from, Vec2 to)
 {
     if (!CanOccupyAt(in, to)) return false;
-    if (in.playerOnHazard) return true;
+    // Escaping damaging ground may cross more of that ground, but never walls.
+    MapInput sweep=in;
+    if(in.playerOnHazard) sweep.settings.safeWalk=false;
     const float d = Len(Sub(to, from));
     const int steps = std::max(1, static_cast<int>(std::ceil(d / 0.20f)));
     for (int i = 1; i < steps; ++i) {
         const float t = static_cast<float>(i) / static_cast<float>(steps);
-        if (!CanOccupyAt(in, Add(from, Mul(Sub(to, from), t)))) return false;
+        if (!CanOccupyAt(sweep, Add(from, Mul(Sub(to, from), t)))) return false;
     }
     return true;
 }

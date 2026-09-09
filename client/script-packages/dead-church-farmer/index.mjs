@@ -1,5 +1,5 @@
 import { RealmEngine } from '@realmengine/sdk';
-import Farmer from '../farmer/index.mjs';
+import Farmer from '../farmer/index.mjs?spacetime=v4.11';
 
 const LOOP_MS = 100;
 const normalize = (value) => String(value ?? '').toLowerCase().replace(/[^a-z]/g, '');

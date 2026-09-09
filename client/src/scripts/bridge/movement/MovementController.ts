@@ -12,6 +12,7 @@ const MODE_INDEX: Record<DodgeMode, number> = {
   're-plus-plus': 5,
   'pj-dodge': 6,
   unified: 7,
+  spacetime: 8,
 };
 
 /** Single SDK movement adapter backed by the DLL's unified movement planner. */

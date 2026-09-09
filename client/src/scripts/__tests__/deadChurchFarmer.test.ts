@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vitest';
 const source = (name: string) => readFileSync(new URL(`../../../script-packages/${name}/index.mjs`, import.meta.url), 'utf8')
-  .replace(/^import .*;\n/gm, '').replace('export default class', 'return class');
+  .replace(/^import .*;\r?\n/gm, '').replace('export default class', 'return class');
 function fixture() {
   const pos = { x: 0.5, y: 0.5 };
   const beacon = { objectId: 40, objectClass: 'Beacon', name: 'Dead Church Beacon (Adept)', position: { x: 100.5, y: 0.5 } };
@@ -10,8 +10,9 @@ function fixture() {
   let bags: any[] = [];
   const sdk: any = {
     self: { getHP: () => 100, getX: () => pos.x, getY: () => pos.y, distanceTo: (p: any) => Math.hypot(p.x-pos.x,p.y-pos.y) },
-    dodge: { clearWaypoint: vi.fn(), navigateToPosition: vi.fn(), lockEnemy: vi.fn(), clearEnemyLock: vi.fn() },
-    combat: { setAutoFire: vi.fn(), aimAt: vi.fn(), stopAiming: vi.fn() },
+    dodge: { setMode: vi.fn(), setSafeWalk: vi.fn(), setLockFollow: vi.fn(), setAutopilot: vi.fn(),
+      clearWaypoint: vi.fn(), navigateToPosition: vi.fn(), lockEnemy: vi.fn(), clearEnemyLock: vi.fn() },
+    combat: { setKillAura: vi.fn(), setAutoFire: vi.fn(), aimAt: vi.fn(), stopAiming: vi.fn() },
     inventory: { getAll: () => [] },
     loot: { getNearbyBags: () => bags, getBags: () => bags },
     walking: { canTeleport: () => true, teleportToBeacon: vi.fn(() => true) },
@@ -26,6 +27,15 @@ function fixture() {
   return { script: new DeadChurch(), sdk, pos, beacon, mob, bags: (b: any[]) => { bags = b; } };
 }
 afterEach(() => { vi.useRealTimers(); });
+it('inherits Spacetime selection and goal cleanup from the shared farmer', () => {
+  const f = fixture(); f.script.onStart();
+  expect(f.sdk.dodge.setMode).toHaveBeenLastCalledWith('spacetime');
+  f.script.resetMap('Realm');
+  expect(f.sdk.dodge.setMode).toHaveBeenCalledTimes(2);
+  f.script.onStop();
+  expect(f.sdk.dodge.clearWaypoint).toHaveBeenCalled();
+  expect(f.sdk.dodge.clearEnemyLock).toHaveBeenCalled();
+});
 it('teleports to the specific beacon then farms only matching biome mobs', () => {
   vi.useFakeTimers(); vi.setSystemTime(10000);
   const f = fixture(); f.script.onLoop();

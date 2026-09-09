@@ -110,6 +110,7 @@ struct WorldProjectile
     float    runtimeChebyshevHalf = 0.f;
     /// Heuristic half-extent when runtime T unavailable (spawn-time skin/scale/magnitude).
     float    projHalfSize   = 0.f;
+    float    collHalf       = 0.f; // ProjectileProperties.CollisionMult / 2
     float    amplitude      = 0.f;
     float    frequency      = 0.f;
     /// Flash ProjectileProperties.magnitude_ — parametric path radius (tiles), not sine amplitude.

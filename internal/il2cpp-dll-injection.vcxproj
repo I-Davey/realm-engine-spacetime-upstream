@@ -11,6 +11,23 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\features\movement\spacetime\ProjectileContact.h" />
+    <ClCompile Include="src\features\movement\spacetime\SpacetimeCore.cpp" />
+    <ClInclude Include="src\features\movement\spacetime\SpacetimeCore.h" />
+    <ClInclude Include="src\features\movement\spacetime\SpacetimeDebugGeometry.h" />
+    <ClInclude Include="src\features\movement\spacetime\SpacetimeDebugStyle.h" />
+    <ClCompile Include="src\features\movement\spacetime\SpacetimeDodge.cpp" />
+    <ClInclude Include="src\features\movement\spacetime\SpacetimeDodge.h" />
+    <ClCompile Include="src\features\movement\spacetime\SpacetimeMovement.cpp" />
+    <ClInclude Include="src\features\movement\spacetime\SpacetimeMovement.h" />
+    <ClInclude Include="src\features\movement\spacetime\SpacetimeReplay.h" />
+    <ClInclude Include="src\features\movement\udodge\TrajectoryPhase.h" />
+    <ClInclude Include="src\features\movement\dodge\MovementFrameBudget.h" />
+    <ClInclude Include="src\features\combat\autoaim\core\WeaponProfileMath.h" />
+    <ClCompile Include="src\features\combat\autoaim\TargetAssist.cpp" />
+    <ClInclude Include="src\features\combat\autoaim\TargetAssist.h" />
+  </ItemGroup>
+  <ItemGroup>
     <ClCompile Include="src\bootstrap\dllmain.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
@@ -362,11 +379,11 @@
       <PreprocessorDefinitions>_DEBUG;_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING;IL2CPPDLL_EXPORTS;_WINDOWS;_USRDLL;_ITERATOR_DEBUG_LEVEL=0;_HAS_ITERATOR_DEBUGGING=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <ExceptionHandling>Async</ExceptionHandling>
-      <AdditionalOptions>/EHa %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/EHa /utf-8 %(AdditionalOptions)</AdditionalOptions>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch-il2cpp.h</PrecompiledHeaderFile>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
-      <AdditionalIncludeDirectories>$(ProjectDir)src;$(ProjectDir)src\bootstrap;$(ProjectDir)src\core\config;$(ProjectDir)src\core\il2cpp;$(ProjectDir)src\core\logging;$(ProjectDir)src\core\runtime;$(ProjectDir)src\core\ipc;$(ProjectDir)src\core\security;$(ProjectDir)src\features\control;$(ProjectDir)src\features\runtime;$(ProjectDir)src\platform\dx11;$(ProjectDir)src\platform\hooks;$(ProjectDir)src\game\generated;$(ProjectDir)src\game\symbols;$(ProjectDir)src\game\math;$(ProjectDir)src\features\combat\autoability;$(ProjectDir)src\features\combat\autonexus;$(ProjectDir)src\features\combat\ghostHit;$(ProjectDir)src\features\movement\dodge;$(ProjectDir)src\features\movement\zdodge;$(ProjectDir)src\features\movement\repp;$(ProjectDir)src\features\movement\pjdodge;$(ProjectDir)src\features\movement\speedhack;$(ProjectDir)src\features\misc;$(ProjectDir)src\features\movement\noclip;$(ProjectDir)src\features\movement\collider;$(ProjectDir)src\features\visuals;$(ProjectDir)src\features\visuals\skins\character;$(ProjectDir)src\features\visuals\skins\pet;$(ProjectDir)src\features\visuals\skins;$(ProjectDir)src\features\account;$(ProjectDir)src\features\loot;$(ProjectDir)src\ui;$(ProjectDir)vendor;$(ProjectDir)vendor\imgui;$(ProjectDir)vendor\minhook;$(ProjectDir)vendor\detours;$(ProjectDir)defs</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)src;$(ProjectDir)src\bootstrap;$(ProjectDir)src\core\config;$(ProjectDir)src\core\il2cpp;$(ProjectDir)src\core\logging;$(ProjectDir)src\core\runtime;$(ProjectDir)src\core\ipc;$(ProjectDir)src\core\security;$(ProjectDir)src\features\control;$(ProjectDir)src\features\runtime;$(ProjectDir)src\platform\dx11;$(ProjectDir)src\platform\hooks;$(ProjectDir)src\game\generated;$(ProjectDir)src\game\symbols;$(ProjectDir)src\game\math;$(ProjectDir)src\features\combat\autoability;$(ProjectDir)src\features\combat\autonexus;$(ProjectDir)src\features\combat\ghostHit;$(ProjectDir)src\features\movement\dodge;$(ProjectDir)src\features\movement\zdodge;$(ProjectDir)src\features\movement\repp;$(ProjectDir)src\features\combat\autoaim\shoot;$(ProjectDir)src\features\combat\autoaim\core;$(ProjectDir)src\features\combat\autoaim\modes;$(ProjectDir)src\features\movement\pjdodge;$(ProjectDir)src\features\movement\speedhack;$(ProjectDir)src\features\misc;$(ProjectDir)src\features\movement\noclip;$(ProjectDir)src\features\movement\collider;$(ProjectDir)src\features\visuals;$(ProjectDir)src\features\visuals\skins\character;$(ProjectDir)src\features\visuals\skins\pet;$(ProjectDir)src\features\visuals\skins;$(ProjectDir)src\features\account;$(ProjectDir)src\features\loot;$(ProjectDir)src\ui;$(ProjectDir)vendor;$(ProjectDir)vendor\imgui;$(ProjectDir)vendor\minhook;$(ProjectDir)vendor\detours;$(ProjectDir)defs</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>
@@ -389,11 +406,11 @@
       <PreprocessorDefinitions>NDEBUG;_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING;IL2CPPDLL_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <ExceptionHandling>Async</ExceptionHandling>
-      <AdditionalOptions>/EHa %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/EHa /utf-8 %(AdditionalOptions)</AdditionalOptions>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch-il2cpp.h</PrecompiledHeaderFile>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
-      <AdditionalIncludeDirectories>$(ProjectDir)src;$(ProjectDir)src\bootstrap;$(ProjectDir)src\core\config;$(ProjectDir)src\core\il2cpp;$(ProjectDir)src\core\logging;$(ProjectDir)src\core\runtime;$(ProjectDir)src\core\ipc;$(ProjectDir)src\core\security;$(ProjectDir)src\features\control;$(ProjectDir)src\features\runtime;$(ProjectDir)src\platform\dx11;$(ProjectDir)src\platform\hooks;$(ProjectDir)src\game\generated;$(ProjectDir)src\game\symbols;$(ProjectDir)src\game\math;$(ProjectDir)src\features\combat\autoability;$(ProjectDir)src\features\combat\autonexus;$(ProjectDir)src\features\combat\ghostHit;$(ProjectDir)src\features\movement\dodge;$(ProjectDir)src\features\movement\zdodge;$(ProjectDir)src\features\movement\repp;$(ProjectDir)src\features\movement\pjdodge;$(ProjectDir)src\features\movement\speedhack;$(ProjectDir)src\features\misc;$(ProjectDir)src\features\movement\noclip;$(ProjectDir)src\features\movement\collider;$(ProjectDir)src\features\visuals;$(ProjectDir)src\features\visuals\skins\character;$(ProjectDir)src\features\visuals\skins\pet;$(ProjectDir)src\features\visuals\skins;$(ProjectDir)src\features\account;$(ProjectDir)src\features\loot;$(ProjectDir)src\ui;$(ProjectDir)vendor;$(ProjectDir)vendor\imgui;$(ProjectDir)vendor\minhook;$(ProjectDir)vendor\detours;$(ProjectDir)defs</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)src;$(ProjectDir)src\bootstrap;$(ProjectDir)src\core\config;$(ProjectDir)src\core\il2cpp;$(ProjectDir)src\core\logging;$(ProjectDir)src\core\runtime;$(ProjectDir)src\core\ipc;$(ProjectDir)src\core\security;$(ProjectDir)src\features\control;$(ProjectDir)src\features\runtime;$(ProjectDir)src\platform\dx11;$(ProjectDir)src\platform\hooks;$(ProjectDir)src\game\generated;$(ProjectDir)src\game\symbols;$(ProjectDir)src\game\math;$(ProjectDir)src\features\combat\autoability;$(ProjectDir)src\features\combat\autonexus;$(ProjectDir)src\features\combat\ghostHit;$(ProjectDir)src\features\movement\dodge;$(ProjectDir)src\features\movement\zdodge;$(ProjectDir)src\features\movement\repp;$(ProjectDir)src\features\combat\autoaim\shoot;$(ProjectDir)src\features\combat\autoaim\core;$(ProjectDir)src\features\combat\autoaim\modes;$(ProjectDir)src\features\movement\pjdodge;$(ProjectDir)src\features\movement\speedhack;$(ProjectDir)src\features\misc;$(ProjectDir)src\features\movement\noclip;$(ProjectDir)src\features\movement\collider;$(ProjectDir)src\features\visuals;$(ProjectDir)src\features\visuals\skins\character;$(ProjectDir)src\features\visuals\skins\pet;$(ProjectDir)src\features\visuals\skins;$(ProjectDir)src\features\account;$(ProjectDir)src\features\loot;$(ProjectDir)src\ui;$(ProjectDir)vendor;$(ProjectDir)vendor\imgui;$(ProjectDir)vendor\minhook;$(ProjectDir)vendor\detours;$(ProjectDir)defs</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>

@@ -12,6 +12,7 @@ struct WeaponProfile {
     float   avgSpeedTps = 10.f;  // average speed tiles/sec, used for QuadraticIntercept
     int32_t projId      = 0;     // projProps objectType id (for weapon-specific tweaks)
     bool    isResolved  = false; // true once calibrated from real projProps data
+    bool    isParametric = false; // fixed-reach model; no linear flight lifetime required
 };
 
 namespace WeaponCalibrator {

@@ -39,6 +39,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  spacetime-regressions:
+    name: Spacetime and shared collision regressions
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile production planner and run native regressions
+        run: python internal/tests/run_spacetime_tests.py --all
+
   locale-guard:
     name: Locale-independent Windows text parsing guard
     runs-on: ubuntu-latest

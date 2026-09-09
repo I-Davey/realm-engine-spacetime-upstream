@@ -293,7 +293,7 @@ bool EnemyBlocked(const MapInput& in, Vec2 pos)
         // observed as NO-MOVE kind=3 clr=1e+09 for 15 s at a time after a kill, on a
         // loot detour, or when a new quest goal arrived. The soft term still pushes
         // the player off mobs; it just no longer freezes them.
-        if (Len(Sub(pos, e.pos)) < e.radius + kUPlayerHalf) return true;
+        if (Len(Sub(pos, e.pos)) < EnemyAvoidanceRadius(e,in.settings)) return true;
     }
     return false;
 }
@@ -317,7 +317,7 @@ bool EnemyPathBlocked(const MapInput& in, Vec2 from, Vec2 to)
     for (int i = 0; i < in.map->enemyCount; ++i) {
         const EnemyBlocker& e = in.map->enemies[i];
         if (PointSegDistEuclid(e.pos, from, to) <
-            e.radius + kUPlayerHalf) return true;   // physical body only — see EnemyBlocked
+            EnemyAvoidanceRadius(e,in.settings)) return true;
     }
     return false;
 }

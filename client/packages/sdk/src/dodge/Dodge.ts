@@ -1,6 +1,6 @@
 import type { Position } from '../types/world/Position';
 
-export type DodgeMode = 'off' | 'xdodge' | 'rollout-grid' | 'rollout-quad' | 'zdodge' | 're-plus-plus' | 'pj-dodge' | 'unified';
+export type DodgeMode = 'off' | 'xdodge' | 'rollout-grid' | 'rollout-quad' | 'zdodge' | 're-plus-plus' | 'pj-dodge' | 'unified' | 'spacetime';
 
 /** Script-facing control surface for the native dodge/pathfinding system. */
 export class Dodge {

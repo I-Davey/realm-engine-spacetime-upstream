@@ -2,6 +2,7 @@
 #include <cstdio>
 
 #include "DirectX.h"
+#include "features/movement/spacetime/SpacetimeDodge.h"
 #include "Il2CppHook.h"
 #include "settings.h"
 #include "gui/tabs/TestTAB.h"
@@ -315,6 +316,7 @@ void DirectX::Shutdown() {
 			DirectX::ApplyMouseState(mouseCache.wasVisible, mouseCache.wasLockState);
 
 		settings.ImGuiInitialized = false;
+		SpacetimeDodge::ReleaseDebugResources();
 		ImGui_ImplDX11_Shutdown();
 		ImGui_ImplWin32_Shutdown();
 		ImGui::DestroyContext();
@@ -370,4 +372,3 @@ void DirectX::ApplyMouseState(bool visible, int lockState)
 		}
 		});
 }
-

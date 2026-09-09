@@ -6,6 +6,7 @@
 #include "features/combat/autoaim/core/TargetSelector.h"
 #include "features/combat/enemytracker/EnemyTracker.h"
 #include "GameState.h"
+#include "features/combat/autoaim/TargetAssist.h"
 #include "RuntimeOffsets.h"
 #include "core/runtime/MemRead.h"
 #include "game/objects/GameObjects.h"
@@ -56,6 +57,7 @@ static bool LocalStealthBlocksAim(void* player)
 
 static void RunTick()
 {
+    if (TargetAssist::OwnsAim()) return;
     const bool aimOn = s_enabled.load(std::memory_order_relaxed);
 
     void* local = GameState::GetLocalPtr();

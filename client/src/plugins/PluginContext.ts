@@ -29,6 +29,7 @@ export interface SettingDef {
   min?: number;
   max?: number;
   step?: number;
+  description?: string;
   options?: { label: string; value: string }[];
   /** If set, this setting is rendered only when another setting has the requested value. */
   visibleWhen?: { key: string; value?: any; values?: any[] };

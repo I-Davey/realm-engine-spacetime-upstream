@@ -8,6 +8,7 @@
 #include "features/projectiles/ShotOrigin.h"
 #include "AutoNexus.h"
 #include "LocalPlayer.h"
+#include "features/combat/autoaim/TargetAssist.h"
 #include "ProjectileTracking.h"
 #include <imgui/imgui.h>
 
@@ -22,6 +23,7 @@ bool MuzzleWeaponRangeDebugOverlayEnabled()
 
 void Tick(bool menuVisible)
 {
+    TargetAssist::Tick(menuVisible);
     FeatAutoAim::Tick(menuVisible);
     FeatMagnetAim::Tick(menuVisible);
     KillAura::Tick();
@@ -65,6 +67,8 @@ void Render()
     ImGui::Spacing();
 
     FeatMagnetAim::Render();
+    ImGui::Separator();
+    TargetAssist::RenderSettings();
 
     ImGui::Spacing();
     ImGui::TextUnformatted("Local shot spawn offset (tiles along aim)");

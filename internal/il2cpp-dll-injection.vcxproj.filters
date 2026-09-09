@@ -1,6 +1,23 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <ClInclude Include="src\features\movement\spacetime\ProjectileContact.h" />
+    <ClCompile Include="src\features\movement\spacetime\SpacetimeCore.cpp" />
+    <ClInclude Include="src\features\movement\spacetime\SpacetimeCore.h" />
+    <ClInclude Include="src\features\movement\spacetime\SpacetimeDebugGeometry.h" />
+    <ClInclude Include="src\features\movement\spacetime\SpacetimeDebugStyle.h" />
+    <ClCompile Include="src\features\movement\spacetime\SpacetimeDodge.cpp" />
+    <ClInclude Include="src\features\movement\spacetime\SpacetimeDodge.h" />
+    <ClCompile Include="src\features\movement\spacetime\SpacetimeMovement.cpp" />
+    <ClInclude Include="src\features\movement\spacetime\SpacetimeMovement.h" />
+    <ClInclude Include="src\features\movement\spacetime\SpacetimeReplay.h" />
+    <ClInclude Include="src\features\movement\udodge\TrajectoryPhase.h" />
+    <ClInclude Include="src\features\movement\dodge\MovementFrameBudget.h" />
+    <ClInclude Include="src\features\combat\autoaim\core\WeaponProfileMath.h" />
+    <ClCompile Include="src\features\combat\autoaim\TargetAssist.cpp" />
+    <ClInclude Include="src\features\combat\autoaim\TargetAssist.h" />
+  </ItemGroup>
+  <ItemGroup>
     <ClCompile Include="src\bootstrap\dllmain.cpp" />
     <ClCompile Include="src\core\logging\helpers.cpp" />
     <ClCompile Include="src\core\il2cpp\il2cpp-init.cpp" />

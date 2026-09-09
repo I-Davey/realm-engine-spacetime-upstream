@@ -15,6 +15,17 @@
 // where effR already folds in the player half-extent. See InProjAabb.
 namespace DodgeHit {
 
+// Spacetime uses the live collision threshold, with CollisionMult as fallback.
+// Sprite size and the player's terrain footprint are not projectile padding.
+inline float SpacetimeProjectileHalf(const WorldProjectile& b)
+{
+    if (b.runtimeChebyshevHalf > 1e-5f && std::isfinite(b.runtimeChebyshevHalf))
+        return b.runtimeChebyshevHalf;
+    if (b.collHalf > 1e-5f && std::isfinite(b.collHalf)) return b.collHalf;
+    return 0.5f;
+}
+
+
 // RotMG player collision half-hitbox (tiles). The server hit test uses this
 // for the player side; it matches XDriver's dodge math and is intentionally
 // distinct from the slightly larger 0.2285 environment-collision half used
