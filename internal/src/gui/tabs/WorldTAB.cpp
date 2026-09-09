@@ -2233,9 +2233,20 @@ namespace WorldTAB {
         out.clear();
         void* worldMgr = GameState::GetWorldMgr();
         if (!Mem::AddrOk(worldMgr)) return false;
-        // Walk the live pools with an EMPTY seed so `out` ends up as exactly the set
-        // of live projectile instance pointers. The discarded WorldProjectile list is
-        // the price of reusing the existing, battle-tested pool walk.
+        // A successful EMPTY snapshot means every tracked shot has despawned, and is
+        // materially different from a failed read. Verify that at least one of the
+        // authoritative pool fields is readable before allowing callers to retire
+        // entries from the tracking store.
+        void* pool = nullptr;
+        const bool readable =
+            Mem::TryRead(worldMgr, RuntimeOffsets::WM_MapDictA, pool) ||
+            Mem::TryRead(worldMgr, RuntimeOffsets::WM_MapDictB, pool) ||
+            Mem::TryRead(worldMgr, RuntimeOffsets::WM_KjmonList, pool);
+        if (!readable || !GetHbeakProjectileClass()) return false;
+
+        // Walk the live pools with an EMPTY seed so `out` ends up as exactly the
+        // set of live projectile instance pointers. The discarded WorldProjectile
+        // list is the price of reusing the existing, battle-tested pool walk.
         std::vector<WorldProjectile> discard;
         MergeProjectilePoolsFromWorldManager(worldMgr, discard, out);
         return true;
