@@ -172,7 +172,7 @@ export function register(ctx: PluginContext) {
     description: 'Limits the normal search; it does not force larger dodges. Known bombs can extend it to allow escape.',
   }, (v: number) => sendDllFeature('spacetimeStationaryMaxDistance', v));
   registerModeSetting('spacetime', 'spacetimeStationaryEnemyScale', {
-    label: 'Stationary: Enemy avoidance size (multiplier)', type: 'range', value: 0.1, min: 0.1, max: 3, step: 0.05,
+    label: 'Stationary: Enemy avoidance size (multiplier)', type: 'range', value: 1.05, min: 0.1, max: 3, step: 0.05,
     description: 'Changes enemy clearance in movement checks and the overlay. Harmless scenery keeps its physical size.',
   }, (v: number) => sendDllFeature('spacetimeStationaryEnemyScale', v));
   registerModeSetting('spacetime', 'spacetimeStationarySearchBudgetMs', {

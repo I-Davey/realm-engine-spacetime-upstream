@@ -43,7 +43,7 @@ std::atomic<float> stationaryLookRange{10.f};
 std::atomic<float> stationaryContactScale{0.95f};
 std::atomic<float> stationaryHorizonMs{4000.0f};
 std::atomic<float> stationaryMaxDistance{6.5f};
-std::atomic<float> stationaryEnemyScale{0.1f};
+std::atomic<float> stationaryEnemyScale{1.05f};
 std::atomic<float> stationarySearchBudgetMs{8.0f};
 std::atomic<int> bypassKey{VK_SHIFT},overlayKey{0};
 bool lastMovingProfile=false;

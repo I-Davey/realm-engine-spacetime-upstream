@@ -18,7 +18,7 @@ Moving and Stationary profiles are independently adjustable:
 | Contact multiplier | 1.0 | 0.95 |
 | Prediction | 1475 ms | 4000 ms |
 | Dodge distance budget | 4.5 tiles | 6.5 tiles |
-| Enemy clearance multiplier | 0.2 | 0.1 |
+| Enemy clearance multiplier | 0.2 | 1.05 |
 | Search budget | 8 ms | 8 ms |
 
 Harmless-block steering defaults off; the overlay and 60 FPS cap default on.
