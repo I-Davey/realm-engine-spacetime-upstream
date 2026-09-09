@@ -26,12 +26,16 @@ function fixture() {
 }
 afterEach(() => vi.useRealTimers());
 describe('farmer control ownership', () => {
-  it('uses Spacetime on start and map change and releases goals on stop', () => {
-    const f = fixture(); f.farmer.onStart();
-    expect(f.sdk.dodge.setMode).toHaveBeenLastCalledWith('spacetime');
+  it.each(['unified', 'spacetime'])('uses the selected %s mode across maps and releases goals on stop', (mode) => {
+    const f = fixture();
+    expect(f.farmer.dodgeMode).toBe('unified');
+    if (mode === 'spacetime') f.farmer.dodgeMode = mode;
+    f.farmer.onStart();
+    expect(f.sdk.dodge.setMode).toHaveBeenLastCalledWith(mode);
     expect(f.sdk.dodge.setAutopilot).toHaveBeenCalledWith(false);
     f.farmer.resetMap('Nexus');
     expect(f.sdk.dodge.setMode).toHaveBeenCalledTimes(2);
+    expect(f.sdk.dodge.setMode).toHaveBeenLastCalledWith(mode);
     f.farmer.onStop();
     expect(f.sdk.dodge.clearEnemyLock).toHaveBeenCalled();
     expect(f.sdk.dodge.clearWaypoint).toHaveBeenCalled();

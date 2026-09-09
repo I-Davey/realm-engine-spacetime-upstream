@@ -27,11 +27,15 @@ function fixture() {
   return { script: new DeadChurch(), sdk, pos, beacon, mob, bags: (b: any[]) => { bags = b; } };
 }
 afterEach(() => { vi.useRealTimers(); });
-it('inherits Spacetime selection and goal cleanup from the shared farmer', () => {
-  const f = fixture(); f.script.onStart();
-  expect(f.sdk.dodge.setMode).toHaveBeenLastCalledWith('spacetime');
+it.each(['unified', 'spacetime'])('inherits the selected %s mode and goal cleanup from the shared farmer', (mode) => {
+  const f = fixture();
+  expect(f.script.dodgeMode).toBe('unified');
+  if (mode === 'spacetime') f.script.dodgeMode = mode;
+  f.script.onStart();
+  expect(f.sdk.dodge.setMode).toHaveBeenLastCalledWith(mode);
   f.script.resetMap('Realm');
   expect(f.sdk.dodge.setMode).toHaveBeenCalledTimes(2);
+  expect(f.sdk.dodge.setMode).toHaveBeenLastCalledWith(mode);
   f.script.onStop();
   expect(f.sdk.dodge.clearWaypoint).toHaveBeenCalled();
   expect(f.sdk.dodge.clearEnemyLock).toHaveBeenCalled();

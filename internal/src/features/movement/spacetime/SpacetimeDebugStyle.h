@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cstdio>
 
-// Shared by the live overlay and the offline ImGui rendering fixture.
+// Drawing helpers for the movement and threat overlay.
 namespace SpacetimeDodge::DebugStyle {
 constexpr ImU32 ink=IM_COL32(228,237,245,255), muted=IM_COL32(143,163,181,255);
 constexpr ImU32 mint=IM_COL32(94,234,190,255), amber=IM_COL32(251,191,90,255);
@@ -20,7 +20,6 @@ inline void Hud(ImDrawList* draw,ImVec2 pos,float width,const char* status,const
     draw->AddRect(pos,{pos.x+width,pos.y+height},IM_COL32(152,182,204,38),10.f);
     draw->AddCircleFilled({pos.x+16.f,pos.y+18.f},3.f,accent);
     Text(draw,{pos.x+26.f,pos.y+10.f},12.f,muted,preview?"SPACETIME  /  PREVIEW":"SPACETIME");
-    Text(draw,{pos.x+width-46.f,pos.y+10.f},11.f,muted,"v4.19");
     Text(draw,{pos.x+13.f,pos.y+29.f},17.f,ink,status);
     Text(draw,{pos.x+13.f,pos.y+51.f},12.f,muted,detail);
     const float y=pos.y+74.f;

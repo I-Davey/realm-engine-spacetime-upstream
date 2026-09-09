@@ -38,6 +38,7 @@ std::atomic<bool> enabled{false}, overlay{true}, shadow{false}, reset{true};
 std::atomic<float> lookRange{16.f},contactScale{1.f},horizonMs{800.f},maxDistance{3.f};
 std::atomic<float> enemyScale{1.f},searchBudgetMs{4.f};
 std::atomic<bool> avoidBlocks{false};
+std::atomic<bool> recordReplays{false};
 std::atomic<ULONGLONG> rangePreviewUntil{0},distancePreviewUntil{0};
 State state;
 NavigationState navigation;
@@ -150,7 +151,7 @@ struct ReplayRecorder {
         SetThreadPriority(worker.native_handle(),THREAD_PRIORITY_BELOW_NORMAL);
     }
     void Observe(const Input& in,Debug& d) {
-        if(!GetDebugOverlay()) { hasPrevious=false; return; }
+        if(!recordReplays.load()) { hasPrevious=false; return; }
         if(hasPrevious) d.prediction=Replay::Compare(previous.map,*in.world.map,in.world.player,
             static_cast<float>(in.nowMs-previous.input.nowMs));
         const bool failure=d.out.status==Status::Recovery || d.out.status==Status::NoPlan ||
@@ -177,60 +178,6 @@ struct ReplayRecorder {
         previous.feedbackKnown=!d.native || d.rejected;
     }
 } replayRecorder;
-
-// Opt-in through the existing debug overlay. Bounded to 1 MiB, sampled twice
-// per second from the render thread, so disk I/O never blocks the dodge search.
-void LogDebug(const Debug& d) {
-    static ULONGLONG last=0; const auto now=GetTickCount64();
-    if(now-last<500 || d.nowMs==0.) return; last=now;
-    static ULONGLONG lastIdle=0;
-    if(d.out.status==Status::Clear && !d.bullets && !d.zones && !d.hasGoal && !d.native) {
-        if(now-lastIdle<10000) return;
-        lastIdle=now;
-    }
-    wchar_t local[MAX_PATH]{};
-    if(!GetEnvironmentVariableW(L"LOCALAPPDATA",local,MAX_PATH)) return;
-    wchar_t path[MAX_PATH]{};
-    swprintf_s(path,L"%s\\RealmEngine-Spacetime.log",local);
-    FILE* file=nullptr;
-    if(_wfopen_s(&file,path,L"ab")!=0 || !file) return;
-    std::fseek(file,0,SEEK_END);
-    if(std::ftell(file)>1024*1024) {
-        std::fclose(file); file=nullptr;
-        wchar_t previous[MAX_PATH]{};
-        swprintf_s(previous,L"%s\\RealmEngine-Spacetime.previous.log",local);
-        if(!MoveFileExW(path,previous,MOVEFILE_REPLACE_EXISTING)) return;
-        if(_wfopen_s(&file,path,L"wb")!=0 || !file) return;
-    }
-    const auto& o=d.out; const auto& s=o.diagnostics;
-    std::fprintf(file,"v4.19-spacetime t=%.0f status=%s reason=%s action=%s replan=%s pos=%.3f,%.3f speed=%.2f "
-        "nominal=%.5f,%.5f shots=%d beams=%d provisional=%d zones=%d enemies=%d missing=%d limited=%d "
-        "hitMs=%.0f waitMs=%.0f step=%.1f lead=%.1f frame=%.1f available=%.1f capture=%.2f search=%.2f "
-        "expanded=%d edges=%d budget=%d reused=%d rejects=%d,%d,%d,%d,%d "
-        "range=%.1f contactScale=%.2f horizon=%.0f maxDistance=%.2f considered=%d damage=%.0f hits=%d unknownDamage=%d moves=%u deferred=%u rejected=%u noRoute=%u replans=%u "
-        "aoeHooks=%d capturedAoes=%d sources=%d,%d,%d,%d blastMs=%.0f blastRadius=%.2f zoneLimits=%d terrainAtPlayer=%d "
-        "native=%d walkingHook=%d nativeCalls=%u nativeOverrides=%u nativeFailures=%u "
-        "evaluated=%d requestedHorizon=%.0f requestedMaxDistance=%.2f nativeSkipped=%u "
-        "goalActive=%d waypointGoal=%d goal=%.3f,%.3f approaching=%d detouring=%d unknownTailChecks=%d cornerRejects=%d seedAvailable=%d recoveryCandidates=%d "
-        "predictionMatched=%d predictionNear=%d predictionDiverged=%d predictionError=%.4f nearError=%.4f immediateGuard=%d "
-        "enemyScale=%.2f avoidBlocks=%d searchBudgetMs=%.2f\n",
-        d.nowMs,StatusName(o.status),ReasonName(o.reason),d.action,ReasonName(o.replanReason),
-        d.player.x,d.player.y,d.speed,d.nominal.x,d.nominal.y,d.bullets,d.beams,d.provisional,d.zones,d.enemies,
-        d.missing,d.limited,s.baselineHitMs,o.waitMs,d.stepMs,d.leadMs,d.frameMs,d.availableMs,d.captureMs,d.solveMs,
-        o.expansions,s.edges,o.budgetHit,o.reused,
-        s.projectileRejects,s.terrainRejects,s.enemyRejects,s.zoneRejects,s.speedRejects,
-        d.lookRange,d.contactScale,d.horizonMs,d.maxDistance,d.considered,
-        o.estimatedDamage,o.expectedHits,o.unknownDamage,
-        d.moves,d.deferrals,d.rejections,d.noRouteFrames,d.replans,
-        d.aoeHooks,d.capturedAoes,d.aoeSources[0],d.aoeSources[1],d.aoeSources[2],d.aoeSources[3],
-        d.nextBlastMs,d.blastRadius,d.zoneLimits,d.terrainAtPlayer,
-        d.native,d.walkingHook,d.nativeCalls,d.nativeOverrides,d.nativeFailures,
-        d.evaluated,d.requestedHorizonMs,d.requestedMaxDistance,d.nativeSkipped,
-        d.hasGoal,d.goalWaypoint,d.goal.x,d.goal.y,d.approaching,d.detouring,s.unknownTailChecks,s.cornerRejects,s.seedAvailable,s.recoveryCandidates,
-        d.prediction.matched,d.prediction.nearMatched,d.prediction.diverged,d.prediction.maxError,d.prediction.nearError,d.immediateGuard,
-        d.enemyScale,d.avoidBlocks,d.searchBudgetMs);
-    std::fclose(file);
-}
 
 void CaptureDebugShapes(Debug& d,const Input& in) {
     d.bullets=map.laneCount; d.enemies=map.enemyCount; d.zones=in.zoneCount;
@@ -633,6 +580,9 @@ void RenderSettings() {
             applied.requestedHorizonMs,applied.requestedMaxDistance,applied.horizonMs,applied.maxDistance);
     ImGui::TextDisabled("In-game edits last until dashboard reactivation or DLL reconnect.");
     if(ImGui::CollapsingHeader("Debug appearance and details##spacetime")) {
+        bool recording=recordReplays.load();
+        if(ImGui::Checkbox("Record diagnostic replays",&recording)) recordReplays.store(recording);
+        if(recording) ImGui::TextWrapped("Captures up to eight rotating files in %%LOCALAPPDATA%%/RealmEngine-Spacetime-replayNN.bin. Recording lasts for this DLL session and works with the overlay hidden.");
         ImGui::Checkbox("Prediction grid",&showGrid);
         ImGui::Checkbox("Current collision outlines",&showOutlines);
         ImGui::Checkbox("Projectile paths",&showPaths);
@@ -667,7 +617,6 @@ void RenderSettings() {
             s.projectileRejects,s.terrainRejects,s.enemyRejects,s.zoneRejects);
         ImGui::Text("Frame %.1f ms | command gate %.1f ms | budget %.1f ms",d.frameMs,d.leadMs,d.availableMs);
         ImGui::TextWrapped("Last failure: %s",d.lastFailure);
-        ImGui::TextWrapped("Log: %%LOCALAPPDATA%%\\RealmEngine-Spacetime.log");
     }
 }
 
@@ -810,7 +759,6 @@ void ReleaseDebugResources() { rasterWorker.Stop(); replayRecorder.Stop(); gridT
 void RenderDebugOverlay(float camX,float camY,float angle,float zoom,float cx,float cy) {
     if(!IsEnabled() || !GetDebugOverlay()) return;
     const auto d=ReadDebug();
-    LogDebug(d);
     auto* draw=ImGui::GetBackgroundDrawList(); // world debug stays below settings/menu
     const auto display=ImGui::GetIO().DisplaySize;
     if(!draw || !std::isfinite(zoom) || zoom<=0.f || !std::isfinite(angle) ||

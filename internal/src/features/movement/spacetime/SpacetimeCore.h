@@ -19,7 +19,7 @@ struct Diagnostics {
     int edges = 0, projectileRejects = 0, terrainRejects = 0, enemyRejects = 0,
         zoneRejects = 0, speedRejects = 0;
     int unknownTailChecks = 0;
-    int cornerRejects = 0; // contacts missed by the previous circular model
+    int cornerRejects = 0; // square-threshold contacts outside its inscribed circle
     bool seedAvailable = false;
     int recoveryCandidates = 0;
     int threatLane = -1;
@@ -52,7 +52,7 @@ struct Input {
     // A throttled native actuator cannot promise continuous full-speed motion.
     // Zero uses the entire search step (continuous-controller tests).
     float actuationMs = 0.f;
-    float maxCorrectionSpeed = 0.f; // tiles/ms; zero retains the one-speed legacy bound
+    float maxCorrectionSpeed = 0.f; // tiles/ms; zero uses world.speed
     bool collectDiagnostics = false;
     bool expandedForZones = false;
     Settings settings{};

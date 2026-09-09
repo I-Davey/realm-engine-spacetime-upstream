@@ -336,7 +336,7 @@ static void AssistRegressionTests() {
         "Pirate King's Cutlass XML speed 150 and lifetime 220ms give 3.3 tiles, not 3300");
     Check(LifetimeMs(.22f,220.f)==220.f && LifetimeMs(220.f,0.f)==220.f &&
         LifetimeMs(.22f,0.f)==220.f,
-        "weapon lifetime handles explicit milliseconds and runtime seconds without the old 250 threshold");
+        "weapon lifetime handles explicit milliseconds and runtime seconds");
     Check(LifetimeMs(0.f,0.f)==0.f && LifetimeMs(1.f,1500.f)==1500.f,
         "missing weapon lifetime stays unknown and explicit units take precedence");
     WeaponProfile profile{}; profile.isParametric=true; profile.lifetimeMs=0.f;
@@ -591,7 +591,7 @@ static void DirectionalTravelTests() {
     in.zoneCount=0;
     in.settings.lookRange=32.f; in.settings.horizonMs=4000.f; in.settings.maxDistance=12.f;
     Shot({24.f,0.f},{25.f,0.f},4000.f,.05f);
-    Check(LaneInLookRange(in,map.lanes[0]),"expanded look range admits projectiles beyond the old 16-tile cap");
+    Check(LaneInLookRange(in,map.lanes[0]),"expanded look range admits projectiles beyond 16 tiles");
     DebugGeometry::Grid extendedGrid; extendedGrid.Reset({},32.f,.5f);
     Check(extendedGrid.range==32.f,"debug grid respects the expanded look range");
     map.laneCount=0; in.nominal={}; state.Reset(); Evaluate(in,state,out.dodge);
@@ -703,7 +703,7 @@ static void MatchingTimeTests() {
     Check(SweptProjectileContact({-2.f,0.f},{2.f,0.f},.5f,&entry,&leave) &&
         entry==.375f && leave==.625f,"continuous recovery residence uses exact contact entry and exit");
     Check(SweptProjectileContact({.45f,.45f},{.45f,.45f},.5f) && std::hypot(.45f,.45f)>.55f,
-        "corner hit survives even the user's old 1.10 circular scale");
+        "square corner contact lies outside a circle scaled to 1.10");
     Check(SweptProjectileContact({-2.f,.49f},{2.f,.49f},.5f,&entry) && std::fabs(entry-.375f)<1e-6f,
         "fast edge crossing reports its exact per-axis entry time");
     Check(!SweptProjectileContact({-2.f,.5f},{2.f,.5f},.5f),
@@ -736,7 +736,7 @@ static void MatchingTimeTests() {
     }
     Check(matchingSquareRaster,"scanline square grid matches continuous contacts and arrival times for diagonal and axial shots");
     Check(DebugGeometry::GridOpacity(99.)==1.f && DebugGeometry::GridOpacity(101.)>.98f &&
-        DebugGeometry::GridOpacity(250.)==0.f,"dense grid fades instead of blinking at the old 100ms cutoff");
+        DebugGeometry::GridOpacity(250.)==0.f,"dense grid fades gradually as its snapshot ages");
     const Vec2 walkingMarker=DebugGeometry::PlayerAt({}, {2.f,3.f},{.005f,0.f},1000.,200.f);
     Check(std::fabs(walkingMarker.x-3.f)<1e-6f && walkingMarker.y==3.f,
         "normal walking debug marker plots live velocity at the labeled future time");
@@ -775,7 +775,7 @@ static void MatchingTimeTests() {
     Check(SampleProjectile(lane,400.f,p)==SampleStatus::Known && std::fabs(p.x-7.f)<1e-5f,
         "debug and planner extrapolate the same verified projectile position in time");
     in.world.player={3.f,1.f}; state.Reset(); Evaluate(in,state,out);
-    Check(out.status!=Status::Clear,"collision after captured samples is detected at the moving head, beyond old bounds");
+    Check(out.status!=Status::Clear,"collision after captured samples is detected at the extrapolated moving head");
     in.world.player={3.f,0.f}; in.settings.lookRange=.5f;
     Check(LaneInLookRange(in,lane),"look range admits a verified future head entering from beyond the captured trail");
     int drawn=0;
@@ -1160,7 +1160,7 @@ int main(int argc,char** argv) {
     grid.Reset({},2.f,fineStep);
     grid.Segment({.15f,.15f},{.15f,.15f},.04f,0.f,0.f);
     Check(cellAt({.15f,.15f}).arrivalMs==0.f && cellAt({.21f,.15f}).arrivalMs<0.f,
-        "small bullet between old half-tile centres is visible without inflating its radius");
+        "small bullet between half-tile centres is visible without inflating its radius");
     int smallCount=0,largeCount=0;
     for(const auto& cell:grid.cells) if(cell.arrivalMs>=0.f) ++smallCount;
     grid.Reset({},2.f,fineStep); grid.Segment({.15f,.15f},{.15f,.15f},.08f,0.f,0.f);
@@ -1241,34 +1241,6 @@ int main(int argc,char** argv) {
     }
     grid.WritePixels(pixels.data(),grid.width*sizeof(uint32_t),800.f);
     Check(pixels==forwardPixels,"dense grid colors are stable when projectile priority order reverses");
-    // Optional visual fixture uses the production raster, not a reimplementation.
-    if(argc>1) {
-        const char* preview=argv[1];
-        grid.Reset({},4.f,fineStep);
-        grid.Segment({-3.5f,-2.f},{3.5f,2.f},.10f,0.f,800.f);
-        grid.Segment({-3.f,3.f},{3.f,-3.f},.04f,0.f,800.f);
-        grid.Segment({-2.f,1.f},{-2.f,1.f},.3f,0.f,0.f);
-        grid.Segment({2.f,-1.f},{2.f,-1.f},.6f,0.f,0.f,true);
-        pixels.resize(static_cast<size_t>(grid.width)*grid.height);
-        grid.WritePixels(pixels.data(),grid.width*sizeof(uint32_t),800.f);
-        FILE* output=nullptr;
-#ifdef _WIN32
-        fopen_s(&output,preview,"wb");
-#else
-        output=std::fopen(preview,"wb");
-#endif
-        if(output) {
-            std::fprintf(output,"P6\n%d %d\n255\n",grid.width,grid.height);
-            for(auto pixel:pixels) {
-                const unsigned char rgb[3]={static_cast<unsigned char>(pixel?pixel&255:18),
-                    static_cast<unsigned char>(pixel?(pixel>>8)&255:24),
-                    static_cast<unsigned char>(pixel?(pixel>>16)&255:34)};
-                std::fwrite(rgb,1,3,output);
-            }
-            std::fclose(output);
-        }
-        Check(output!=nullptr,"visual fixture written from production grid");
-    }
     const double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
     std::printf("Spacetime: %d checks, %d failures (%.1f ms total)\n",checks,failures,ms);
     return failures ? 1 : 0;

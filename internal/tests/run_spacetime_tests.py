@@ -9,7 +9,7 @@ import re
 
 internal = Path(__file__).resolve().parents[1]
 # A registered group is useless unless the public dispatcher calls it. This
-# also guards the Spacetime and Target Assist groups added by this port.
+# also guards the Spacetime and Target Assist command groups.
 registry = (internal / "src/features/control/FeatureCommandRegistry.cpp").read_text(encoding="utf-8")
 groups = set(re.findall(r"bool (Apply\w+Feature)\(const FeatureCommand& f\)", registry))
 dispatch = registry[registry.index("bool Apply(const FeatureCommand& feature)"):]
@@ -48,11 +48,10 @@ with tempfile.TemporaryDirectory(prefix="spacetime-tests-") as directory:
         command = [os.environ.get("CXX", "c++"), "-std=c++17", "-O2", "-Wall", "-Wextra",
                    "-I", str(build), *map(str, sources), "-o", str(binary)]
     subprocess.run(command, cwd=build, env=env, check=True)
-    preview = os.environ.get("RE_SPACETIME_GRID_PREVIEW")
     if "--replay" in sys.argv:
         subprocess.run([str(binary), *sys.argv[sys.argv.index("--replay"):]], check=True)
     else:
-        subprocess.run([str(binary), *([preview] if preview else [])], check=True)
+        subprocess.run([str(binary)], check=True)
     if "--all" in sys.argv:
         core=internal / "src/features/movement/udodge"
         for name in ("udodge_zone_tests", "udodge_temporal_tests", "udodge_admission_tests",

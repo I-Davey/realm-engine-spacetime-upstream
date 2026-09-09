@@ -154,8 +154,8 @@ struct Check {
         if (!threatsOnly && !OccupancyPathClear(in.world, a, b)) { if(stats) ++stats->terrainRejects; return false; }
         if (!EnemyPathClear(in.world, a, b,threatsOnly)) { if(stats) ++stats->enemyRejects; return false; }
         if (!Bullets(a, b, ta, tb)) { if(stats) ++stats->projectileRejects; return false; }
-        // Unlike legacy pending-zone costs, a telegraph blocks at its actual
-        // activation time. Escaping one zone never exempts any other zone.
+        // A telegraph blocks at its activation time. Escaping one zone never
+        // exempts any other zone.
         for (int i = 0; i < in.zoneCount; ++i) {
             const auto& z = in.zones[i];
             const float lo = std::max(ta, z.startsMs), hi = std::min(tb, z.endsMs);
@@ -903,9 +903,8 @@ void Recover(const Input& in,State& state,Output& out,Vec2 priorDirection) {
     best.points[best.count++]={Add(in.world.player,Mul(in.nominal,in.settings.horizonMs)),in.settings.horizonMs};
     Risk bestRisk=MeasureRisk(in,check,best,unknownDamage);
     bool found=bestRisk.valid;
-    // Held walking must be allowed to STOP for the whole prediction window.
-    // Counting cancelled input as dodge distance previously forced every stop
-    // to resume into the same bullet after maxDistance / walkingSpeed.
+    // A stationary hold can span the prediction window without consuming the
+    // movement distance budget.
     // Seed the unrestricted hold only when this command needs intervention;
     // otherwise its long stationary tail would force an unnecessarily early stop.
     if(LenSq(in.nominal)>1e-12f && !check.Edge(in.world.player,

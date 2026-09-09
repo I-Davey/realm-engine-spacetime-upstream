@@ -608,7 +608,7 @@ struct Settings {
     float captureHorizonMs = 1050.f;
     float enemyAvoidanceScale = 1.f;
     // Opt-in for consumers which share DashDodge's point-player hit threshold.
-    // Legacy UDodge retains its existing source selection by default.
+    // UDodge uses this source selection unless precise capture is enabled.
     bool projectileCollisionThreshold = false;
     float hitScale    = 1.0f;    // × per-shot hit threshold [0.25, 2.5]
     float positionUncertainty = 0.f; // local desired vs server-visible MOVE position [0, .35]
