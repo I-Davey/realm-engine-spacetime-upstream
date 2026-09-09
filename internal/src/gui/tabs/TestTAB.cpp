@@ -969,7 +969,7 @@ void TestTAB::Tick(bool menuVisible)
         // distance so the click maps exactly to what the player sees on screen.
         {
             static bool s_prevMmb = false;
-            const bool mmbDown = (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0;
+            const bool mmbDown = TargetAssist::GetSelectKey()>0 && (GetAsyncKeyState(TargetAssist::GetSelectKey()) & 0x8000) != 0;
             const bool mmbEdge = mmbDown && !s_prevMmb;
             s_prevMmb = mmbDown;
             if (mmbEdge && g_w2sValid && !menuVisible && !ImGui::GetIO().WantCaptureMouse) {

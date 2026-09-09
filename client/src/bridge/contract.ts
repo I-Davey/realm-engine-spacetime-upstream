@@ -1,8 +1,8 @@
 /**
- * contract.ts — the single TypeScript source of truth for the DLL↔client
+ * contract.ts â€” the single TypeScript source of truth for the DLLâ†”client
  * bridge wire contract.
  *
- * Messages are plaintext length-prefixed JSON dispatched purely by `type` —
+ * Messages are plaintext length-prefixed JSON dispatched purely by `type` â€”
  * there is no per-message `seq`/`mac` signing and no mutual-auth handshake.
  *
  * Every value here is emitted on (or matched against) the named pipe the
@@ -13,7 +13,7 @@
  *
  * When a game patch forces a change on the C++ side, update the matching file
  * above AND this module together. This does NOT unify across the language
- * boundary (no shared-schema codegen) — it centralizes the TS mirror and
+ * boundary (no shared-schema codegen) â€” it centralizes the TS mirror and
  * documents its C++ counterpart. Do not change any emitted value: the DLL
  * matches these strings verbatim.
  */
@@ -26,10 +26,10 @@ export const BRIDGE = {
 } as const;
 
 /**
- * Message `type` strings exchanged with the DLL — all plaintext, no `seq`/`mac`.
- * Incoming (DLL→client): Hello, Heartbeat, HeartbeatResp, Player, HotkeyEvent,
+ * Message `type` strings exchanged with the DLL â€” all plaintext, no `seq`/`mac`.
+ * Incoming (DLLâ†’client): Hello, Heartbeat, HeartbeatResp, Player, HotkeyEvent,
  * UnresolvedClasses, Threats, Aim.
- * Outgoing (client→DLL): SetFeature (plus Heartbeat/HeartbeatResp).
+ * Outgoing (clientâ†’DLL): SetFeature (plus Heartbeat/HeartbeatResp).
  * Each must match a builder in IpcMessages.cpp.
  */
 export const DllMessageType = {
@@ -47,7 +47,7 @@ export type DllMessageType = typeof DllMessageType[keyof typeof DllMessageType];
 
 /**
  * Feature keys `sendDllFeature` accepts, sorted. This union drives
- * sendDllFeature's parameter type, so a typo is a compile error — but it is
+ * sendDllFeature's parameter type, so a typo is a compile error â€” but it is
  * NOT the full set the DLL handles: see DLL_ONLY_FEATURE_KEYS below.
  *
  * The DLL swallows unknown keys by design (FeatureCommandRegistry.cpp:9-10),
@@ -76,10 +76,15 @@ export const DLL_FEATURE_KEYS = [
   'rolloutHeadings', 'rolloutHitScale', 'rolloutHorizonTicks', 'rolloutIntentWeight',
   'rolloutRebuildN', 'rolloutSampleStepMs', 'rolloutWasdYield', 'scriptCombatTargetId', 'scriptEnemyLockId',
   'showPluginFloatingText', 'skinOverrideEnabled', 'skinOverrideId', 'socketHotkey', 'socketHotkeyActive',
-  'spacetimeAvoidBlocks', 'spacetimeContactScale', 'spacetimeDebugOverlay', 'spacetimeEnemyScale',
-  'spacetimeHorizonMs', 'spacetimeLookRange', 'spacetimeMaxDistance', 'spacetimeSearchBudgetMs',
-  'spacetimeShadowMode', 'speedHackMult', 'targetAssistClear', 'targetAssistDebug',
-  'targetAssistEnabled', 'targetAssistRangeFactor', 'targetFrameRate', 'udodgeAutopilot', 'udodgeDebugOverlay', 'udodgeDrawPath',
+  'spacetimeAvoidBlocks', 'spacetimeBypassKey', 'spacetimeContactScale', 'spacetimeDebugOverlay',
+  'spacetimeEnemyScale',
+  'spacetimeHorizonMs', 'spacetimeLookRange', 'spacetimeMaxDistance', 'spacetimeOverlayKey',
+  'spacetimeSearchBudgetMs',
+  'spacetimeShadowMode', 'spacetimeStationaryContactScale', 'spacetimeStationaryEnemyScale',
+  'spacetimeStationaryHorizonMs', 'spacetimeStationaryLookRange', 'spacetimeStationaryMaxDistance',
+  'spacetimeStationarySearchBudgetMs', 'speedHackMult', 'targetAssistClear', 'targetAssistClearKey',
+  'targetAssistDebug',
+  'targetAssistEnabled', 'targetAssistRangeFactor', 'targetAssistSelectKey', 'targetFrameRate', 'udodgeAutopilot', 'udodgeDebugOverlay', 'udodgeDrawPath',
   'udodgeFieldEscape', 'udodgeFollowLantern', 'udodgeHitScale', 'udodgeLaneTiles',
   'udodgeLockFollow', 'udodgeMoveEnvelope', 'udodgeMoveEnvelopeArmed', 'udodgeOrbitRange',
   'udodgePacketShot',
@@ -105,7 +110,7 @@ export type DllFeatureKey = typeof DLL_FEATURE_KEYS[number];
  * Feature keys the DLL's FeatureCommandRegistry.cpp handles but that NOTHING in
  * the client sends today. Listed here so `scripts/check-bridge-contract.mjs`
  * can tell "intentionally DLL-side only" apart from "someone forgot to add a
- * key" — the latter is a silent bug, because the DLL swallows unknown keys by
+ * key" â€” the latter is a silent bug, because the DLL swallows unknown keys by
  * design (FeatureCommandRegistry.cpp:9-10).
  *
  * Three sub-groups, kept in one list because the checker only needs the set:
@@ -114,7 +119,7 @@ export type DllFeatureKey = typeof DLL_FEATURE_KEYS[number];
  *                        overlayEnabled, walkTarget*)
  *   - untyped sender   : sent via InternalBridge.setFeature (not sendDllFeature),
  *                        so it deliberately bypasses DllFeatureKey
- *                        (pluginToggleHotkeys — DevServer.ts:2897)
+ *                        (pluginToggleHotkeys â€” DevServer.ts:2897)
  *   - legacy dodge     : honoured by the DLL, no live sender anywhere
  *
  * Adding a dashboard control for one of these means MOVING it into
@@ -138,7 +143,7 @@ export const DLL_ONLY_FEATURE_KEYS = [
  * (FeatureCommandRegistry.cpp:9-10), and the feature does nothing.
  *
  * KNOWN-BROKEN (do not add to without an owner):
- *   followEntityActive / followEntityName — client/plugins/auto-follow.ts sends
+ *   followEntityActive / followEntityName â€” client/plugins/auto-follow.ts sends
  *   both; there is no handler in FeatureCommandRegistry.cpp and no caller of
  *   DangerPlanner::SetExternalGoal outside TestTAB. The Auto Follow plugin is a
  *   no-op. Fix = either implement the DLL handler or delete the plugin; that is

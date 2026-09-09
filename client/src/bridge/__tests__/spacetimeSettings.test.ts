@@ -27,7 +27,7 @@ function harness() {
   };
   register(ctx as unknown as PluginContext);
   return {
-    send, events, packets,
+    send, events, packets, values,
     edit(key: string, value: unknown) { values.set(key, value); changes.get(key)?.(value); },
     enable(value: boolean) { ctx.enabled = value; enabledChanged(value); },
   };
@@ -36,6 +36,24 @@ function harness() {
 afterEach(() => { setDllFeatureSender(null); vi.useRealTimers(); });
 
 describe('Spacetime dashboard settings', () => {
+  it('keeps independent moving and stationary defaults and restores their keys on reconnect', () => {
+    const h = harness();
+    expect(h.values.get('spacetimeHorizonMs')).toBe(1475);
+    expect(h.values.get('spacetimeStationaryHorizonMs')).toBe(4000);
+    expect(h.values.get('spacetimeLookRange')).toBe(3.5);
+    expect(h.values.get('spacetimeContactScale')).toBe(1);
+    expect(h.values.get('spacetimeStationaryLookRange')).toBe(10);
+    h.edit('spacetimeStationaryHorizonMs', 3000);
+    h.edit('spacetimeBypassKey', 'MOUSE4');
+    h.edit('spacetimeOverlayKey', 'F8');
+    h.edit('dodgeMode', 'spacetime');
+    h.send.mockClear();
+    h.events.get('clientConnected')!();
+    expect(h.send).toHaveBeenCalledWith('spacetimeHorizonMs', 1475);
+    expect(h.send).toHaveBeenCalledWith('spacetimeStationaryHorizonMs', 3000);
+    expect(h.send).toHaveBeenCalledWith('spacetimeBypassKey', 'MOUSE4');
+    expect(h.send).toHaveBeenCalledWith('spacetimeOverlayKey', 'F8');
+  });
   it('sends numeric and boolean edits without rounding or truthy-string conversion', () => {
     const h = harness();
     for (const [key, value] of Object.entries({

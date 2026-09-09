@@ -38,9 +38,8 @@ bool Stand(const Input& in, Vec2 p) {
 // navigation walls: the full timed proposal is checked separately each update.
 void FindRoute(const Input& in, const MovementGoal& g, NavigationState& nav) {
     const auto began=std::chrono::steady_clock::now();
-    nav.Reset(); nav.identity=g.identity; nav.center=g.center; nav.range=g.range; nav.searchedMs=in.nowMs;
+    nav.Reset(); nav.identity=g.identity; nav.center=g.center; nav.range=g.range;
     nav.entering=true;
-    nav.checkpoint=in.world.player; nav.progressMs=in.nowMs;
     const Vec2 start=in.world.player;
     // Find the first usable point along the direct approach, then refine its
     // boundary. No artificial inner radius or preferred point on a ring.
@@ -107,132 +106,6 @@ void FindRoute(const Input& in, const MovementGoal& g, NavigationState& nav) {
     for(auto i=reverse.rbegin();i!=reverse.rend();++i) nav.route[nav.count++]=*i;
 }
 
-// Follow the local geometry route for a finite duration, then dwell. The
-// proposal includes the continuation that makes crossing a projectile lane
-// safe; it does not require stopping inside that lane after a single frame.
-bool TravelPlan(const Input& in,const NavigationState& nav,Vec2 sidestep,float sideMs,
-    float travelMs,float waitMs,Plan& plan,float& progress,float prefixMs=0.f) {
-    plan={}; plan.speed=in.world.speed; plan.epochMs=in.nowMs; plan.departureMs=in.settings.leadMs+waitMs;
-    plan.points[plan.count++]={in.world.player,0.f};
-    float time=plan.departureMs;
-    if(time>0.f) plan.points[plan.count++]={in.world.player,time};
-    const float end=std::min(in.settings.horizonMs-in.settings.dwellMs,time+travelMs);
-    if(end<=time || end<in.settings.leadMs+in.frameMs) return false;
-    Vec2 position=in.world.player;
-    progress=0.f;
-    const auto append=[&](Vec2 destination) {
-        const float distance=Len(Sub(destination,position));
-        if(distance<=1e-6f) return true;
-        const float duration=std::min(distance/in.world.speed,end-time);
-        if(duration<=0.f || plan.count>=kMaxPlanPoints-2) return false;
-        const Vec2 next=duration>=distance/in.world.speed?destination:
-            Add(position,Mul(Normalize(Sub(destination,position)),in.world.speed*duration));
-        plan.intervention+=Len(Sub(next,position));
-        position=next; time+=duration; plan.points[plan.count++]={position,time};
-        return time<end-.001f;
-    };
-    if(prefixMs>0.f && nav.next<nav.count) {
-        const Vec2 delta=Sub(nav.route[nav.next],position);
-        if(!append(Add(position,Mul(Normalize(delta),std::min(Len(delta),in.world.speed*prefixMs))))) return false;
-    }
-    if(sideMs>0.f && !append(Add(position,Mul(sidestep,in.world.speed*sideMs)))) return false;
-    if(nav.next<nav.count) progress=Len(Sub(in.world.player,nav.route[nav.next]))-
-        Len(Sub(position,nav.route[nav.next]));
-    for(int i=nav.next;i<nav.count;i++) {
-        const Vec2 before=position;
-        const bool more=append(nav.route[i]);
-        progress+=Len(Sub(position,before));
-        if(!more) break;
-    }
-    if(plan.intervention<1e-5f) return false;
-    plan.points[plan.count++]={position,in.settings.horizonMs};
-    return true;
-}
-
-bool Approach(const Input& in, const MovementGoal& goal, NavigationState& nav, Output& out) {
-    const auto began=std::chrono::steady_clock::now();
-    if(!in.world.map || in.world.map->limited || in.world.map->projectileSourceUnavailable ||
-       in.world.map->enemyCount<0 || in.world.map->enemyCount>UDodge::kMaxEnemies ||
-       in.world.movementLocked || !std::isfinite(in.world.speed) || !(in.world.speed>0.f) ||
-       !std::isfinite(in.world.player.x) || !std::isfinite(in.world.player.y) ||
-       !std::isfinite(in.frameMs) || !(in.frameMs>0.f)) return false;
-    const bool changed=nav.identity!=goal.identity || Len(Sub(nav.center,goal.center))>.35f ||
-        std::fabs(nav.range-goal.range)>.01f ||
-        (nav.complete && nav.count>0 && !Arrived(goal,nav.route[nav.count-1]));
-    while(nav.next<nav.count && Len(Sub(nav.route[nav.next],in.world.player))<.005f) ++nav.next;
-    const bool obstructed=nav.next<nav.count && !Walk(in,in.world.player,nav.route[nav.next]);
-    const bool arrived=nav.next>=nav.count;
-    if(Len(Sub(nav.checkpoint,in.world.player))>.08f) {
-        nav.checkpoint=in.world.player; nav.progressMs=in.nowMs;
-    }
-    const bool stalled=nav.travelValid && in.nowMs-nav.progressMs>350. &&
-        in.nowMs>nav.travel.epochMs+nav.travel.departureMs+350.;
-    if(changed || obstructed || stalled || (arrived && (nav.count>0 || in.nowMs-nav.searchedMs>=200.)))
-        FindRoute(in,goal,nav);
-    if(nav.next>=nav.count) return false;
-    // Retain the chosen side/turn and absolute timing while still safe. Do not
-    // recreate a fresh sidestep each update or postpone its rejoin forever.
-    if(nav.travelValid && EvaluateTrajectory(in,nav.travel,out) &&
-       (Len(out.velocity)>1e-6f || out.waitMs>0.f)) { out.reused=true; return true; }
-    nav.travelValid=false; nav.detouring=false;
-    // Shortcut only through checked geometry, preserving corridor turns.
-    int next=nav.next;
-    while(next+1<nav.count && Walk(in,in.world.player,nav.route[next+1])) ++next;
-    nav.next=next;
-    const Vec2 waypoint=nav.route[next];
-    const auto timedOut=[&] { return in.settings.maxSearchMs>0.f &&
-        std::chrono::duration<float,std::milli>(std::chrono::steady_clock::now()-began).count()>
-            in.settings.maxSearchMs*.4f; };
-    const auto movingTimedOut=[&] { return in.settings.maxSearchMs>0.f &&
-        std::chrono::duration<float,std::milli>(std::chrono::steady_clock::now()-began).count()>
-            in.settings.maxSearchMs*.3f; };
-    const auto accept=[&](Vec2 side,float sideMs,float duration,float waitMs=0.f) {
-        Plan plan{}; Output proposal{}; float progress=0.f;
-        if(!TravelPlan(in,nav,side,sideMs,duration,waitMs,plan,progress) || !EvaluateTrajectory(in,plan,proposal)) return false;
-        // A bounded detour must actually rejoin/progress along navigation, not
-        // turn a travel request into permanent sideways drift.
-        if(sideMs>0.f && progress<.01f) return false;
-        // Keep travelling in the requested direction until the latest tested
-        // safe turn. A delayed turn is forward motion, not an idle wait.
-        if(sideMs>0.f) for(float prefix=std::min(240.f,duration*.5f);prefix>=20.f;prefix-=20.f) {
-            if(movingTimedOut()) break;
-            Plan delayed{}; Output refined{}; float delayedProgress=0.f;
-            if(TravelPlan(in,nav,side,sideMs,duration,waitMs,delayed,delayedProgress,prefix) &&
-               delayedProgress>.01f && EvaluateTrajectory(in,delayed,refined)) {
-                plan=delayed; proposal=refined; break;
-            }
-        }
-        nav.travel=plan; nav.travelValid=true; nav.detouring=sideMs>0.f; out=proposal; return true;
-    };
-    const float horizon=in.settings.horizonMs-in.settings.leadMs-in.settings.dwellMs;
-    if(accept({},0.f,horizon)) return true;
-    const Vec2 forward=Normalize(Sub(waypoint,in.world.player));
-    // Small symmetric alternatives first, including a turn back onto the
-    // route. Every edge and the terminal dwell use the existing continuous
-    // projectile, bomb, wall and body checks. Reserve time for emergency dodge.
-    for(float sideMs:{40.f,80.f,160.f,240.f}) {
-        if(in.world.speed*sideMs>in.settings.maxDistance || movingTimedOut()) break;
-        for(float angle:{.3926991f,-.3926991f,.7853982f,-.7853982f,1.5707963f,-1.5707963f}) {
-            if(movingTimedOut()) break;
-            const Vec2 side{forward.x*std::cos(angle)-forward.y*std::sin(angle),
-                forward.x*std::sin(angle)+forward.y*std::cos(angle)};
-            if(accept(side,sideMs,horizon)) return true;
-        }
-    }
-    // For a travel request, safe full-speed progress precedes stopping. Wait
-    // when a moving route cannot fit; retained timing prevents sliding waits.
-    for(float waitMs:{20.f,40.f,80.f,120.f,160.f}) {
-        if(timedOut()) return false;
-        if(accept({},0.f,horizon,waitMs)) return true;
-    }
-    // A longer route may be blocked by a later wave. Shorter progress remains
-    // useful only when its stopped endpoint is safe for the entire horizon.
-    for(float duration:{horizon*.5f,horizon*.25f,in.frameMs}) {
-        if(timedOut()) break;
-        if(accept({},0.f,duration)) return true;
-    }
-    return false;
-}
 }
 
 Vec2 MovementDisplacement(Vec2 selected, Vec2 applied, float commandMs) {
@@ -287,8 +160,10 @@ bool PrepareNativeMovement(Input& in,Vec2 requested) {
         in.nominal=Mul(Normalize(delta),in.world.speed);
     } else in.nominal={};
     in.settings.leadMs=0.f;
-    in.settings.stepMs=std::max(10.f,in.frameMs);
-    in.actuationMs=in.settings.stepMs;
+    // Native replacement is continuous across calls. Frame jitter must not
+    // change the search lattice or introduce a fictitious off portion.
+    in.settings.stepMs=40.f;
+    in.actuationMs=0.f;
     in.maxCorrectionSpeed=in.world.speed*2.f;
     return true;
 }
@@ -303,116 +178,82 @@ bool NativeMovementTarget(const Input& in,const Output& out,Vec2& target) {
     return true;
 }
 
-void EvaluateMovement(const Input& in, bool keyboard, const MovementGoal& goal,
-    State& state, NavigationState& nav, MovementDecision& out) {
-    const auto began=std::chrono::steady_clock::now();
+bool ResolveNativeMovementTarget(const Input& in,Output& out,bool proposalUsable,
+    bool retainControl,Vec2 requested,Vec2& target) {
+    Vec2 candidate{};
+    if(proposalUsable && NativeMovementTarget(in,out,candidate) &&
+       UDodge::OccupancyPathClear(in.world,in.world.player,candidate) &&
+       EnemyPathClear(in.world,in.world.player,candidate)) { target=candidate; return true; }
+    Output emergency=out;
+    emergency.status=Status::Incomplete;
+    if(!ProtectImmediateStep(in,emergency,retainControl)) return false;
+    out=emergency;
+    candidate=UDodge::Add(in.world.player,UDodge::Mul(out.velocity,in.frameMs));
+    if(UDodge::Len(UDodge::Sub(candidate,requested))<=1e-6f) return false;
+    target=candidate; return true;
+}
+
+void EvaluateMovement(const Input& in,bool keyboard,const MovementGoal& supplied,
+    State& state,NavigationState& nav,MovementDecision& out) {
     out=MovementDecision{};
-    if(keyboard && !in.settings.avoidHarmlessBlocks && KeyboardIntentSafe(in)) {
-        // Native movement owns harmless collisions. A wall, prop, or water
-        // must not manufacture a dodge or keep an obsolete detour alive.
-        state.Reset(); nav.Reset(); out.dodge.status=Status::Clear;
-        out.dodge.velocity=in.nominal; out.action="following keyboard / no harmful threat"; return;
-    }
-    if(keyboard && UDodge::Len(in.nominal)>1e-6f && in.world.speed>0.f && !in.world.movementLocked) {
-        // A held direction is a travel goal too. Keep its world anchor through
-        // a detour instead of inventing a new goal on every lateral step.
-        const Vec2 direction=UDodge::Normalize(in.nominal);
-        const bool changed=!nav.directional || UDodge::Dot(direction,nav.direction)<.995f;
+    Input request=in;
+    request.guidance={};
+    request.guidance.manual=keyboard;
+    MovementGoal goal=supplied;
+    if(keyboard && LenSq(in.nominal)>1e-12f) {
+        const Vec2 direction=Normalize(in.nominal);
+        const bool changed=!nav.directional || Dot(direction,nav.direction)<.995f;
         if(changed) nav.Reset();
-        if(state.valid && !Validate(in,state.plan)) state.Reset();
-        if(state.valid) {
-            Evaluate(in,state,out.dodge);
-            if(out.dodge.reused && out.dodge.status==Status::Moving) {
-                out.action="finishing escape / keyboard"; return;
-            }
-        }
-        if(!nav.travelValid) {
-            Plan baseline{}; baseline.count=2; baseline.epochMs=in.nowMs;
-            baseline.speed=in.world.speed; baseline.nominal=in.nominal;
-            baseline.points[0]={in.world.player,0.f};
-            baseline.points[1]={UDodge::Add(in.world.player,UDodge::Mul(in.nominal,in.settings.horizonMs)),in.settings.horizonMs};
-            if(EvaluateTrajectory(in,baseline,out.dodge)) {
-                out.dodge.status=Status::Clear; out.dodge.velocity=in.nominal;
-                nav.Reset(); state.Reset(); out.action="following keyboard direction"; return;
-            }
-        }
+        goal={}; goal.active=true; goal.identity=uint64_t{1}<<62; goal.range=.2f;
         const float reach=std::max(2.f,std::min(6.f,in.world.speed*in.settings.horizonMs));
-        const Vec2 center=changed || nav.count==0 || UDodge::Dot(UDodge::Sub(nav.center,in.world.player),direction)<.5f?
-            UDodge::Add(in.world.player,UDodge::Mul(direction,reach)):nav.center;
-        MovementGoal heading{}; heading.active=true; heading.identity=uint64_t{1}<<62;
-        heading.center=center; heading.range=.2f; heading.context=&heading;
-        heading.contains=[](const void* context,Vec2 p) {
-            const auto& g=*static_cast<const MovementGoal*>(context);
-            return UDodge::Len(UDodge::Sub(p,g.center))<=g.range;
+        goal.center=changed || nav.count==0 || Dot(Sub(nav.center,in.world.player),direction)<.5f?
+            Add(in.world.player,Mul(direction,reach)):nav.center;
+        goal.context=&goal; goal.contains=[](const void* c,Vec2 p) {
+            const auto& g=*static_cast<const MovementGoal*>(c);
+            return Len(Sub(p,g.center))<=g.range;
         };
-        Input travel=in; travel.nominal={};
-        if(in.settings.maxSearchMs>0.f) travel.settings.maxSearchMs=std::max(.01f,in.settings.maxSearchMs-
-            std::chrono::duration<float,std::milli>(std::chrono::steady_clock::now()-began).count());
-        Output proposal{};
-        const bool found=Approach(travel,heading,nav,proposal);
-        nav.directional=true; nav.direction=direction;
-        if(found) {
-            out.dodge=proposal; out.dodge.plan.nominal=in.nominal;
-            const float age=static_cast<float>(in.nowMs-proposal.plan.epochMs);
-            out.dodge.waitMs=0.f;
-            for(int i=1;i<proposal.plan.count;i++) {
-                const auto& a=proposal.plan.points[i-1]; const auto& b=proposal.plan.points[i];
-                if(b.timeMs<=age || b.timeMs<=a.timeMs) continue;
-                const Vec2 v=UDodge::Mul(UDodge::Sub(b.pos,a.pos),1.f/(b.timeMs-a.timeMs));
-                if(UDodge::Len(UDodge::Sub(v,in.nominal))>1e-5f) {
-                    out.dodge.waitMs=std::max(0.f,a.timeMs-age); break;
-                }
-            }
-            // Native endpoint replacement receives the selected absolute
-            // velocity, including a deliberate stop. No second actuator.
-            out.dodge.status=UDodge::Len(UDodge::Sub(proposal.velocity,in.nominal))>1e-6f?Status::Moving:Status::Clear;
-            out.detouring=nav.detouring; state.Reset();
-            out.action=nav.detouring?"routing through / keyboard":"following route / keyboard"; return;
-        }
-        Input fallback=in;
-        if(in.settings.maxSearchMs>0.f) fallback.settings.maxSearchMs=std::max(.01f,in.settings.maxSearchMs-
-            std::chrono::duration<float,std::milli>(std::chrono::steady_clock::now()-began).count());
-        Evaluate(fallback,state,out.dodge); out.action="safety fallback / keyboard"; return;
+        nav.direction=direction;
+    } else if(keyboard) goal={};
+    if(!keyboard && nav.directional) nav.Reset();
+    const bool validGoal=goal.active && goal.contains && std::isfinite(goal.center.x) &&
+        std::isfinite(goal.center.y) && std::isfinite(goal.range) && goal.range>0.f;
+    const bool holding=validGoal && Contains(goal,in.world.player) &&
+        !(nav.entering && nav.identity==goal.identity && !Arrived(goal,in.world.player));
+    if(validGoal && !holding) {
+        const bool changed=nav.identity!=goal.identity || Len(Sub(nav.center,goal.center))>.35f ||
+            std::fabs(nav.range-goal.range)>.01f ||
+            (nav.complete && nav.count>0 && !Arrived(goal,nav.route[nav.count-1]));
+        while(nav.next<nav.count && Len(Sub(nav.route[nav.next],in.world.player))<.005f) ++nav.next;
+        const bool blocked=nav.next<nav.count && !Walk(in,in.world.player,nav.route[nav.next]);
+        if(changed || blocked || nav.next>=nav.count) FindRoute(in,goal,nav);
+        while(nav.next+1<nav.count && Walk(in,in.world.player,nav.route[nav.next+1])) ++nav.next;
+        request.guidance.active=nav.next<nav.count;
+        request.guidance.identity=goal.identity;
+        for(int i=nav.next;i<nav.count;i++) request.guidance.points[request.guidance.count++]=nav.route[i];
+    } else nav.Reset();
+    nav.directional=keyboard && validGoal;
+    if(nav.directional) nav.direction=Normalize(in.nominal);
+    // One retained temporal trajectory for walking, approach, holding and escape.
+    // Cancelling or reaching a goal must not keep executing its cached travel.
+    // The idle objective immediately reassesses any remaining danger.
+    if(!request.guidance.active && state.goalIdentity!=0) state.Reset();
+    Evaluate(request,state,out.dodge);
+    out.approaching=!keyboard && request.guidance.active &&
+        state.goalIdentity==request.guidance.identity &&
+        (out.dodge.status==Status::Moving || out.dodge.status==Status::Waiting);
+    out.overrideActive=keyboard && out.dodge.status!=Status::Clear;
+    nav.overrideActive=out.overrideActive;
+    if(keyboard && out.dodge.status==Status::Clear) nav.Reset();
+    out.detouring=request.guidance.active && Len(out.dodge.velocity)>1e-6f &&
+        Dot(Normalize(out.dodge.velocity),Normalize(Sub(request.guidance.points[0],in.world.player)))<.98f;
+    if(request.guidance.active) for(int i=1;i<out.dodge.plan.count;i++) {
+        const Vec2 segment=Sub(out.dodge.plan.points[i].pos,out.dodge.plan.points[i-1].pos);
+        if(LenSq(segment)>1e-10f && Dot(Normalize(segment),
+            Normalize(Sub(request.guidance.points[0],in.world.player)))<.98f) out.detouring=true;
     }
-    if(nav.directional) nav.Reset();
-    if(keyboard || !goal.active || !goal.contains || !std::isfinite(goal.center.x) ||
-       !std::isfinite(goal.center.y) || !std::isfinite(goal.range) || goal.range<=0.f) {
-        nav.Reset(); Evaluate(in,state,out.dodge);
-        out.action=keyboard?"keyboard / dodge":"holding / dodge"; return;
-    }
-    // An automatic goal never pretends to be movement already applied by keys.
-    Input automatic=in; automatic.nominal={};
-    const bool finishingEntry=nav.entering && nav.identity==goal.identity && !Arrived(goal,in.world.player);
-    const bool holding=Contains(goal,in.world.player) && !finishingEntry;
-    // Keep an executing escape stable. A waiting idle dodge can yield to a
-    // completely validated travel route that already avoids its threat.
-    bool evaluated=false;
-    // Invalidating a retained escape must not launch a full idle search before
-    // travel gets its chance. That consumed the budget and stranded goals.
-    if(!holding && state.valid && !Validate(automatic,state.plan)) state.Reset();
-    if(state.valid || holding) {
-        Evaluate(automatic,state,out.dodge); evaluated=true;
-        if((out.dodge.status==Status::Moving && (out.dodge.reused || holding)) || out.dodge.status==Status::Locked) {
-            nav.travelValid=false;
-            out.action="dodging / retaining escape"; return;
-        }
-        if(holding) { nav.Reset(); out.action=goal.waypoint?"holding waypoint / dodge":"holding firing position / dodge"; return; }
-    }
-    Output approach{};
-    const auto remaining=[&] {
-        return in.settings.maxSearchMs-std::chrono::duration<float,std::milli>(
-            std::chrono::steady_clock::now()-began).count();
-    };
-    if(in.settings.maxSearchMs>0.f) automatic.settings.maxSearchMs=std::max(.01f,remaining());
-    if((in.settings.maxSearchMs<=0.f || remaining()>0.f) && Approach(automatic,goal,nav,approach)) {
-        out.dodge=approach; out.approaching=true; out.detouring=nav.detouring;
-        out.action=nav.detouring?"safe detour / continuing goal":goal.waypoint?"travelling to script waypoint":"approaching firing zone";
-        state.Reset(); return;
-    }
-    if(!evaluated) {
-        if(in.settings.maxSearchMs>0.f) automatic.settings.maxSearchMs=std::max(.01f,remaining());
-        Evaluate(automatic,state,out.dodge);
-    }
-    out.action=out.dodge.status==Status::Clear?"waiting for safe approach":"dodging / approach blocked";
+    nav.detouring=out.detouring;
+    out.action=out.dodge.status==Status::Recovery?"unified movement / minimizing damage":
+        out.overrideActive?"unified movement / protecting requested direction":
+        out.approaching?"unified movement / following goal":keyboard?"following safe keyboard input":"holding / dodge";
 }
 }

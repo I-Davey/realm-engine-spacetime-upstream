@@ -21,6 +21,9 @@ struct WaypointGoal { bool active=false; Vec2 position{}; float radius=.2f; };
 // waypoint context must live for the duration of EvaluateMovement.
 MovementGoal SelectMovementGoal(const WaypointGoal& waypoint,const MovementGoal& firing);
 struct NavigationState {
+    // Reports the temporal planner's ownership to the final native guard.
+    // This is not another movement controller or a timed override latch.
+    bool overrideActive = false;
     std::array<Vec2, 128> route{};
     int count = 0, next = 0;
     bool complete = false;
@@ -28,17 +31,14 @@ struct NavigationState {
     uint64_t identity = 0;
     Vec2 center{};
     float range = 0.f;
-    double searchedMs = -1e9;
-    Plan travel{};
-    bool travelValid = false;
     bool detouring = false;
     bool directional = false;
-    Vec2 direction{}, checkpoint{};
-    double progressMs = 0.;
+    Vec2 direction{};
     void Reset() { *this = NavigationState{}; }
 };
 struct MovementDecision {
     Output dodge{};
+    bool overrideActive = false;
     bool approaching = false;
     bool detouring = false;
     const char* action = "holding";
@@ -55,4 +55,8 @@ void PrepareAutomaticMovement(Input& in,float commandIntervalMs,float commandDel
 bool PrepareFrameMovement(Input& in,float availableMs);
 bool PrepareNativeMovement(Input& in,Vec2 requested);
 bool NativeMovementTarget(const Input& in,const Output& out,Vec2& target);
+// A rejected proposal must not silently execute unsafe keys. Recheck the
+// requested slice and choose a safe or least-damage emergency replacement.
+bool ResolveNativeMovementTarget(const Input& in,Output& out,bool proposalUsable,
+    bool retainControl,Vec2 requested,Vec2& target);
 }

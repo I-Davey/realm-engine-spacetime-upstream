@@ -21,6 +21,7 @@ namespace TargetAssist {
 namespace {
 constexpr float kPickRadiusPx=80.f, kMaxSaneWeaponRange=30.f;
 constexpr uint64_t kTargetTrackerGraceMs=750;
+std::atomic<int> g_selectKey{VK_MBUTTON},g_clearKey{VK_ESCAPE};
 std::atomic<bool> g_enabled{false},g_debug{false};
 std::atomic<float> g_rangeFactor{.92f};
 std::atomic<int32_t> g_targetId{0},g_scriptTargetId{0};
@@ -156,6 +157,10 @@ void ProcessMiddleClick(float sx, float sy, float camX, float camY,
     }
 }
 
+void SetSelectKey(int key) { g_selectKey.store(std::clamp(key,0,255)); }
+int GetSelectKey() { return g_selectKey.load(); }
+void SetClearKey(int key) { g_clearKey.store(std::clamp(key,0,255)); }
+
 void Tick(bool menuVisible) {
     void* world=GameState::GetWorldMgr();
     if(world!=g_world) { ClearTarget(); g_world=world; }
@@ -164,7 +169,7 @@ void Tick(bool menuVisible) {
         return;
     }
     static bool previousEscape=false;
-    const bool escape=KeyDown(VK_ESCAPE);
+    const bool escape=(g_clearKey.load()>0 && KeyDown(g_clearKey.load()));
     if(escape && !previousEscape && !menuVisible) ClearTarget();
     previousEscape=escape;
     const int32_t id=GetTargetId();
@@ -224,6 +229,6 @@ void RenderSettings() {
     if(ImGui::Checkbox("Target Assist##spacetimeTarget",&enabled)) SetEnabled(enabled);
     if(ImGui::SliderFloat("Range safety##spacetimeTarget",&range,.5f,1.f,"%.2f")) SetRangeSafetyFactor(range);
     if(ImGui::Checkbox("Target details##spacetimeTarget",&debug)) SetDebugOverlay(debug);
-    ImGui::TextWrapped("Select Spacetime to approach a clear firing position. Middle-click selects a target; Escape clears it. Hold Shift to bypass movement.");
+    ImGui::TextWrapped("Select Spacetime to approach a clear firing position. Configure select/clear keys in Target Assist and the shared movement bypass key in Auto Dodge.");
 }
 } // namespace TargetAssist

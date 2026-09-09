@@ -6,6 +6,8 @@ void SetEnabled(bool enabled); bool IsEnabled();
 void SetDebugOverlay(bool enabled); bool GetDebugOverlay();
 void SetRangeSafetyFactor(float factor); float GetRangeSafetyFactor();
 void SetScriptTarget(int32_t objectId); int32_t GetTargetId(); void ClearTarget();
+void SetSelectKey(int key); int GetSelectKey();
+void SetClearKey(int key);
 bool OwnsAim();
 // Firing-zone snapshots expire across player/world changes and after 150 ms.
 struct FiringZone {

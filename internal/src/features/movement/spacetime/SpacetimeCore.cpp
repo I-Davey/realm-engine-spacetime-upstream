@@ -441,41 +441,6 @@ bool KeyboardIntentSafe(const Input& in) {
     return true;
 }
 
-bool ProtectImmediateStep(const Input& in,Output& out) {
-    if((out.status!=Status::NoPlan && out.status!=Status::Incomplete) || !ValidInput(in) ||
-       in.world.movementLocked || in.world.speed<=0.f ||
-       (in.actuationMs>0.f && in.actuationMs<in.settings.stepMs)) return false;
-    Check check(in);
-    const float lead=in.settings.leadMs,end=lead+in.frameMs;
-    const Vec2 start=Add(in.world.player,Mul(in.nominal,lead));
-    if(!check.Edge(in.world.player,start,0.f,lead)) return false;
-    // If the requested step itself is safe, preserve it. A distant problem
-    // must not trigger a last-resort stop or a new stream of steering jitter.
-    if(check.Edge(start,Add(start,Mul(in.nominal,in.frameMs)),lead,end)) return false;
-    bool found=false; float bestCost=1e9f; Vec2 best{};
-    // Require an additional next-update window where possible. This is still
-    // a finite prefix, and is reconsidered on the very next native call.
-    const float until=std::min(in.settings.horizonMs,end+std::max(20.f,in.frameMs));
-    for(int action=0;action<17;action++) {
-        const float angle=6.28318530718f*(action-1)/16.f;
-        const Vec2 v=action?Vec2{std::cos(angle)*in.world.speed,std::sin(angle)*in.world.speed}:Vec2{};
-        if(in.actuationMs>0.f && Len(Sub(v,in.nominal))>
-            (in.maxCorrectionSpeed>0.f?in.maxCorrectionSpeed:in.world.speed)+kEps) continue;
-        if(!check.Edge(start,Add(start,Mul(v,until-lead)),lead,until)) continue;
-        const float cost=Len(Sub(v,in.nominal));
-        if(cost<bestCost) { best=v; bestCost=cost; found=true; }
-    }
-    if(!found) return false;
-    out.velocity=best; out.status=Status::Recovery; out.reason=Reason::CommandBlocked;
-    out.plan={}; out.plan.epochMs=in.nowMs; out.plan.speed=in.world.speed; out.plan.nominal=in.nominal;
-    out.plan.points[out.plan.count++]={in.world.player,0.f};
-    if(lead>0.f) out.plan.points[out.plan.count++]={start,lead};
-    out.plan.points[out.plan.count++]={Add(start,Mul(best,until-lead)),until};
-    out.plan.departureMs=lead; out.waitMs=0.f;
-    out.unknownDamage=true; // the rest of the horizon is not certified
-    return true;
-}
-
 // Insert more unchanged input before the correction, preserving its speed,
 // command cadence and shape. Shift its positions by the input traveled during
 // that wait. The caller checks the entire new route, including the new tail.
@@ -1021,7 +986,303 @@ finished:
 }
 }
 
+bool ProtectImmediateStep(const Input& in,Output& out,bool retainControl) {
+    if((out.status!=Status::NoPlan && out.status!=Status::Incomplete) || !ValidInput(in) ||
+       in.world.movementLocked || in.world.speed<=0.f ||
+       (in.actuationMs>0.f && in.actuationMs<in.settings.stepMs)) return false;
+    const float lead=in.settings.leadMs,end=lead+in.frameMs;
+    const Vec2 start=Add(in.world.player,Mul(in.nominal,lead));
+    Check full(in);
+    // Acquiring control is driven by contact, not a distant threat. An owner
+    // whose route failed must select a new command rather than leak raw keys.
+    if(!retainControl && full.Edge(start,Add(start,Mul(in.nominal,in.frameMs)),lead,end)) return false;
+    Input prefix=in;
+    prefix.settings.horizonMs=std::min(in.settings.horizonMs,end+std::max(20.f,in.frameMs));
+    prefix.settings.dwellMs=0.f;
+    Check check(prefix);
+    float unknownDamage=1000.f;
+    for(int i=0;i<in.world.map->laneCount;i++)
+        if(std::isfinite(in.world.map->lanes[i].damageEstimate))
+            unknownDamage=std::max(unknownDamage,in.world.map->lanes[i].damageEstimate+1.f);
+    bool found=false; Risk bestRisk{}; float bestCost=0.f; Vec2 best{}; Plan bestPlan{};
+    // Include the exact requested direction, a hold, and full-speed headings.
+    // Compare contact even when already overlapping; an existing hit must not
+    // disable protection against the next bullet. Never enlarge hitboxes.
+    for(int action=0;action<18;action++) {
+        const float angle=6.28318530718f*(action-2)/16.f;
+        const Vec2 v=action==0?in.nominal:action==1?Vec2{}:
+            Vec2{std::cos(angle)*in.world.speed,std::sin(angle)*in.world.speed};
+        if(in.actuationMs>0.f && Len(Sub(v,in.nominal))>
+            (in.maxCorrectionSpeed>0.f?in.maxCorrectionSpeed:in.world.speed)+kEps) continue;
+        Plan plan{}; plan.epochMs=in.nowMs; plan.speed=in.world.speed; plan.nominal=in.nominal;
+        plan.departureMs=lead; plan.points[plan.count++]={in.world.player,0.f};
+        if(lead>0.f) plan.points[plan.count++]={start,lead};
+        plan.points[plan.count++]={Add(start,Mul(v,prefix.settings.horizonMs-lead)),prefix.settings.horizonMs};
+        const Risk risk=MeasureRisk(prefix,check,plan,unknownDamage);
+        if(!risk.valid) continue;
+        const float cost=Len(Sub(v,in.nominal))+(retainControl?Len(Sub(v,out.velocity)):0.f);
+        if(!found || risk.damage<bestRisk.damage-kEps ||
+           (std::fabs(risk.damage-bestRisk.damage)<=kEps &&
+            (risk.exposure<bestRisk.exposure-.01f ||
+             (std::fabs(risk.exposure-bestRisk.exposure)<=.01f && cost<bestCost)))) {
+            found=true; best=v; bestRisk=risk; bestCost=cost; bestPlan=plan;
+        }
+    }
+    if(!found) {
+        // No physically admissible step exists. Hold instead of pushing raw
+        // input into a wall/body; this is not advertised as a safe route.
+        best={}; bestPlan={}; bestPlan.epochMs=in.nowMs; bestPlan.speed=in.world.speed;
+        bestPlan.nominal=in.nominal; bestPlan.count=2;
+        bestPlan.points[0]={in.world.player,0.f}; bestPlan.points[1]={in.world.player,end};
+    }
+    out.velocity=best; out.plan=bestPlan; out.status=Status::Recovery;
+    out.reason=Reason::CommandBlocked; out.waitMs=0.f; out.reused=false;
+    out.estimatedDamage=bestRisk.damage; out.expectedHits=bestRisk.hits;
+    out.unknownDamage=true; // only this finite prefix was evaluated
+    return true;
+}
+
+namespace {
+// A single timed search scores complete continuations, including their final
+// dwell. Waypoints are guidance; neither they nor recovery own an actuator.
+void EvaluateGuided(const Input& in,State& state,Output& out) {
+    const auto began=std::chrono::steady_clock::now();
+    out={}; out.velocity=in.nominal;
+    if(!ValidInput(in) || in.guidance.count<=0 || in.guidance.count>128) {
+        state.Reset(); out.reason=Reason::InvalidInput; return;
+    }
+    for(int i=0;i<in.guidance.count;i++) if(!std::isfinite(in.guidance.points[i].x) ||
+        !std::isfinite(in.guidance.points[i].y)) { state.Reset(); out.reason=Reason::InvalidInput; return; }
+    if(in.world.movementLocked || in.world.speed<=0.f) {
+        state.Reset(); out.status=Status::Locked; out.velocity={}; return;
+    }
+    Check check(in,in.collectDiagnostics?&out.diagnostics:nullptr);
+    const float lead=in.settings.leadMs,horizon=in.settings.horizonMs;
+    const float step=std::max(in.settings.stepMs,in.frameMs);
+    const Vec2 destination=in.guidance.points[in.guidance.count-1];
+    const Vec2 desired=in.guidance.manual?Normalize(in.nominal):
+        Normalize(Sub(in.guidance.points[0],in.world.player));
+    const auto remaining=[&](Vec2 p,int next) {
+        float distance=next<in.guidance.count?Len(Sub(in.guidance.points[next],p)):0.f;
+        for(int i=next+1;i<in.guidance.count;i++) distance+=Len(Sub(in.guidance.points[i],in.guidance.points[i-1]));
+        return distance;
+    };
+    const auto expired=[&] { return in.settings.maxSearchMs>0.f &&
+        std::chrono::duration<float,std::milli>(std::chrono::steady_clock::now()-began).count()>=in.settings.maxSearchMs; };
+    float unknownDamage=1000.f;
+    for(int i=0;i<in.world.map->laneCount;i++) if(std::isfinite(in.world.map->lanes[i].damageEstimate))
+        unknownDamage=std::max(unknownDamage,in.world.map->lanes[i].damageEstimate+1.f);
+    Plan chosen{}; Risk chosenRisk{}; float chosenRemaining=1e9f,chosenLength=1e9f,chosenArrival=1e9f,chosenIdle=1e9f,chosenReverse=1e9f;
+    bool found=false,safeFound=false;
+    const auto publish=[&](const Plan& plan,bool reused,const Risk& risk) {
+        Output described{};
+        if(!risk.hits && ValidateWith(in,plan,check) && Describe(in,plan,check,described)) {
+            out.plan=plan; out.velocity=described.velocity; out.waitMs=described.waitMs;
+            out.status=described.status; out.reason=Reason::None;
+        } else {
+            out.plan=plan; out.waitMs=std::max(0.f,plan.departureMs-lead);
+            out.velocity=Mul(Sub(PositionAt(plan,lead+in.frameMs),PositionAt(plan,lead)),1.f/in.frameMs);
+            out.status=Status::Recovery; out.reason=Reason::NoRoute;
+        }
+        out.reused=reused; out.estimatedDamage=risk.damage; out.expectedHits=risk.hits; out.unknownDamage=risk.unknown;
+        state.plan=out.plan; state.valid=true; state.goalIdentity=in.guidance.identity; state.goal=destination;
+    };
+    const auto consider=[&](Plan plan,int next) {
+        if(plan.count<2) return false;
+        plan.departureMs=horizon;
+        for(int i=1;i<plan.count;i++) if(Len(Sub(Sub(plan.points[i].pos,plan.points[i-1].pos),
+            Mul(in.nominal,plan.points[i].timeMs-plan.points[i-1].timeMs)))>1e-5f) {
+            plan.departureMs=plan.points[i-1].timeMs; break;
+        }
+        // Evaluate exactly the single chord the host can execute this update.
+        const float commandEnd=lead+in.frameMs;
+        Plan executable{}; executable=plan; executable.count=0;
+        executable.points[executable.count++]={in.world.player,0.f};
+        if(lead>0.f) executable.points[executable.count++]={Add(in.world.player,Mul(in.nominal,lead)),lead};
+        executable.points[executable.count++]={PositionAt(plan,commandEnd),commandEnd};
+        for(int i=1;i<plan.count;i++) if(plan.points[i].timeMs>commandEnd && executable.count<kMaxPlanPoints)
+            executable.points[executable.count++]=plan.points[i];
+        plan=executable;
+        Output validated{};
+        const bool safe=ValidateWith(in,plan,check) && Describe(in,plan,check,validated);
+        Risk risk{};
+        if(!safe) {
+            if(safeFound) return false;
+            risk=MeasureRisk(in,check,plan,unknownDamage);
+            if(!risk.valid) return false;
+            if(!risk.hits) { risk.hits=1; risk.damage=unknownDamage; risk.unknown=true; }
+        }
+        const Vec2 endpoint=plan.points[plan.count-1].pos;
+        // A keyboard direction is not an arrival circle. Reward all projected
+        // progress, including beyond the temporary navigation anchor. Otherwise
+        // reaching that anchor and stopping ties with continuing through it.
+        const float distance=in.guidance.manual?-Dot(Sub(endpoint,in.world.player),desired):remaining(endpoint,next);
+        float length=0.f,arrival=0.f,idle=0.f,pendingIdle=0.f,reverse=0.f;
+        for(int i=1;i<plan.count;i++) {
+            const float d=Len(Sub(plan.points[i].pos,plan.points[i-1].pos));
+            length+=d;
+            reverse+=std::max(0.f,-Dot(Sub(plan.points[i].pos,plan.points[i-1].pos),desired));
+            if(d>1e-6f) { arrival=plan.points[i].timeMs; idle+=pendingIdle; pendingIdle=0.f; }
+            else pendingIdle+=plan.points[i].timeMs-plan.points[i-1].timeMs;
+        }
+        const bool better=!found || (safe && !safeFound) ||
+            (safe==safeFound && (risk.damage<chosenRisk.damage-kEps ||
+             (std::fabs(risk.damage-chosenRisk.damage)<=kEps &&
+              (risk.exposure<chosenRisk.exposure-.01f || (std::fabs(risk.exposure-chosenRisk.exposure)<=.01f &&
+               (distance<chosenRemaining-.005f || (std::fabs(distance-chosenRemaining)<=.005f &&
+                (reverse<chosenReverse-.005f || (std::fabs(reverse-chosenReverse)<=.005f &&
+                 (idle<chosenIdle-.01f || (std::fabs(idle-chosenIdle)<=.01f &&
+                  (arrival<chosenArrival-.01f || (std::fabs(arrival-chosenArrival)<=.01f && length<chosenLength)))))))))))));
+        if(better) { chosen=plan; chosenRisk=risk; chosenRemaining=distance; chosenLength=length;
+            chosenArrival=arrival; chosenIdle=idle; chosenReverse=reverse; found=true; safeFound=safe; }
+        return safe;
+    };
+    const auto finish=[&](Plan plan,Vec2 position,float time,int next,bool follow) {
+        const float end=std::max(time,horizon-(in.guidance.manual?0.f:in.settings.dwellMs));
+        if(follow) while(next<in.guidance.count && time<end && plan.count<kMaxPlanPoints-2) {
+            const Vec2 delta=Sub(in.guidance.points[next],position);
+            const float distance=Len(delta);
+            if(distance<1e-5f) { ++next; continue; }
+            const float duration=std::min(distance/in.world.speed,end-time);
+            position=Add(position,Mul(Normalize(delta),in.world.speed*duration)); time+=duration;
+            plan.points[plan.count++]={position,time};
+            if(duration>=distance/in.world.speed-.001f) ++next;
+        }
+        if(plan.count>=kMaxPlanPoints) return false;
+        if(follow && in.guidance.manual && next>=in.guidance.count)
+            position=Add(position,Mul(in.nominal,horizon-time));
+        plan.points[plan.count++]={position,horizon};
+        return consider(plan,next);
+    };
+    Plan root{}; root.epochMs=in.nowMs; root.speed=in.world.speed; root.nominal=in.nominal;
+    root.departureMs=lead; root.points[root.count++]={in.world.player,0.f};
+    const Vec2 start=Add(in.world.player,Mul(in.nominal,lead));
+    if(lead>0.f) root.points[root.count++]={start,lead};
+    // Following the requested route is optimal when its whole continuation is
+    // safe. This also prevents a cached escape from blocking a safe retreat.
+    if(state.valid && (state.goalIdentity==0 ||
+        (state.goalIdentity==in.guidance.identity && Len(Sub(state.goal,destination))<.35f))) {
+        Output retained{};
+        bool pendingProgress=false;
+        const float age=static_cast<float>(in.nowMs-state.plan.epochMs);
+        for(int i=1;i<state.plan.count;i++) if(state.plan.points[i].timeMs>age &&
+            LenSq(Sub(state.plan.points[i].pos,state.plan.points[i-1].pos))>1e-10f) pendingProgress=true;
+        if(ValidateWith(in,state.plan,check) && Describe(in,state.plan,check,retained) && (Len(retained.velocity)>1e-6f ||
+            (state.goalIdentity!=0 && (retained.waitMs>0.f || pendingProgress)))) {
+            // A safe complete forward continuation can end a hold immediately.
+            // Keep absolute deadlines when the opening still requires waiting.
+            if(Len(retained.velocity)<=1e-6f && finish(root,start,lead,0,true)) {
+                publish(chosen,false,chosenRisk); return;
+            }
+            out=retained; out.reused=true; return;
+        }
+    }
+    if(finish(root,start,lead,0,true)) { publish(chosen,false,chosenRisk); return; }
+    finish(root,start,lead,0,false);
+    // Cheap complete escape shapes seed the same candidate comparison. They
+    // do not own movement or bypass the requested-direction objective.
+    Plan seed{};
+    if(in.expandedForZones && WideZoneEscape(in,check,seed)) consider(seed,0);
+    seed={}; QuickEscape(in,check,seed);
+    if(seed.count>0) { consider(seed,0); out.diagnostics.seedAvailable=true; }
+    const bool initiallySafe=check.Edge(start,start,lead,lead);
+    struct SearchNode { Vec2 position{}; int parent=-1,next=0,layer=0; float cost=0.f; };
+    std::vector<SearchNode> nodes; nodes.reserve(4096); nodes.push_back({start,-1,0,0,0.f});
+    std::vector<int> frontier{0};
+    const int layers=std::min((kMaxPlanPoints-4)/2,static_cast<int>((horizon-lead-in.settings.dwellMs)/step));
+    const auto prefix=[&](int index) {
+        Plan p=root; std::vector<int> chain;
+        for(int i=index;nodes[i].parent>=0;i=nodes[i].parent) chain.push_back(i);
+        for(auto i=chain.rbegin();i!=chain.rend();++i)
+            p.points[p.count++]={nodes[*i].position,lead+nodes[*i].layer*step};
+        // Departure means deviation from intended movement, not the first
+        // waypoint. Retained absolute times do not slide as frames advance.
+        p.departureMs=horizon;
+        for(int i=1;i<p.count;i++) if(Len(Sub(Sub(p.points[i].pos,p.points[i-1].pos),
+            Mul(in.nominal,p.points[i].timeMs-p.points[i-1].timeMs)))>1e-5f) {
+            p.departureMs=p.points[i-1].timeMs; break;
+        }
+        return p;
+    };
+    for(int layer=0;layer<layers && !frontier.empty();layer++) {
+        std::vector<int> nextFrontier;
+        for(int index:frontier) {
+            const SearchNode n=nodes[index]; const float time=lead+layer*step;
+            if(out.expansions++>=in.settings.maxExpansions || expired()) { out.budgetHit=true; goto complete; }
+            const Vec2 forward=n.next<in.guidance.count?Normalize(Sub(in.guidance.points[n.next],n.position)):Vec2{};
+            for(int action=0;action<18;action++) {
+                // Search relative to the requested route first. Fixed world-axis
+                // ordering exhausted short budgets before some forward diagonals.
+                const int offset=(action-1)/2*(action%2==0?1:-1);
+                const float angle=std::atan2(forward.y,forward.x)+kTwoPi*offset/16.f;
+                Vec2 velocity=action==0?Mul(forward,in.world.speed):action==1?Vec2{}:
+                    Vec2{std::cos(angle)*in.world.speed,std::sin(angle)*in.world.speed};
+                Vec2 destinationStep=Add(n.position,Mul(velocity,step));
+                if(action==0 && n.next<in.guidance.count && Len(Sub(in.guidance.points[n.next],n.position))<in.world.speed*step)
+                    destinationStep=in.guidance.points[n.next];
+                const float correction=Len(Sub(Sub(destinationStep,n.position),Mul(in.nominal,step)));
+                // The distance setting limits deviation, not ordinary progress
+                // along a dungeon route or the duration of a necessary hold.
+                const float extra=action<=1?0.f:
+                    Len(Sub(Sub(destinationStep,n.position),Mul(forward,in.world.speed*step)));
+                if(action>1 && n.cost+extra>in.settings.maxDistance) continue;
+                if(!OccupancyPathClear(in.world,n.position,destinationStep) || !EnemyPathClear(in.world,n.position,destinationStep)) continue;
+                const bool edgeSafe=check.Edge(n.position,destinationStep,time,time+step);
+                if((safeFound || initiallySafe) && !edgeSafe) continue;
+                int next=n.next;
+                while(next<in.guidance.count && Len(Sub(destinationStep,in.guidance.points[next]))<.005f) ++next;
+                const int id=static_cast<int>(nodes.size());
+                nodes.push_back({destinationStep,index,next,layer+1,n.cost+extra});
+                Plan p=prefix(id); p.intervention=n.cost+correction;
+                const bool continuation=finish(p,destinationStep,time+step,next,true);
+                // A distant blocked continuation need not prohibit getting
+                // closer now. Compare advancing to a safe stop against holding
+                // here, even when a stationary safe incumbent already exists.
+                if(!continuation || action==1) finish(p,destinationStep,time+step,next,false);
+                nextFrontier.push_back(id);
+                if(expired() || nodes.size()>=kMaxNodes) { out.budgetHit=true; goto complete; }
+            }
+        }
+        std::sort(nextFrontier.begin(),nextFrontier.end(),[&](int a,int b) {
+            return remaining(nodes[a].position,nodes[a].next)+nodes[a].cost*.05f <
+                remaining(nodes[b].position,nodes[b].next)+nodes[b].cost*.05f;
+        });
+        frontier.clear();
+        for(int id:nextFrontier) {
+            bool duplicate=false;
+            for(int kept:frontier) if(nodes[id].next==nodes[kept].next && Len(Sub(nodes[id].position,nodes[kept].position))<.015f) { duplicate=true; break; }
+            if(!duplicate) frontier.push_back(id);
+            if(frontier.size()>=24) break;
+        }
+    }
+complete:
+    if(!found) { state.Reset(); out.status=Status::NoPlan; out.reason=Reason::NoRoute; return; }
+    if(safeFound && in.guidance.manual && LenSq(in.nominal)>1e-12f) {
+        const Plan original=chosen;
+        for(float delay=std::floor((horizon-lead)/step)*step;delay>=step;delay-=step) {
+            if(expired()) break;
+            Plan candidate{};
+            candidate=original; candidate.count=0; candidate.departureMs+=delay;
+            const Vec2 shift=Mul(in.nominal,delay);
+            candidate.points[candidate.count++]={in.world.player,0.f};
+            candidate.points[candidate.count++]={Add(in.world.player,shift),delay};
+            for(int i=1;i<original.count && candidate.count<kMaxPlanPoints-1;i++)
+                if(original.points[i].timeMs+delay<horizon)
+                    candidate.points[candidate.count++]={Add(original.points[i].pos,shift),original.points[i].timeMs+delay};
+            candidate.points[candidate.count++]={Add(PositionAt(original,horizon-delay),shift),horizon};
+            if(Validate(in,candidate)) { chosen=candidate; break; }
+        }
+    }
+    publish(chosen,false,chosenRisk);
+}
+}
+
 void Evaluate(const Input& in,State& state,Output& out) {
+    if(in.guidance.manual && !in.settings.avoidHarmlessBlocks && KeyboardIntentSafe(in)) {
+        state.Reset(); out={}; out.status=Status::Clear; out.velocity=in.nominal; return;
+    }
+    if(in.guidance.active) { EvaluateGuided(in,state,out); return; }
+
     Vec2 prior{};
     if(state.valid) prior=Normalize(Sub(PositionAt(state.plan,static_cast<float>(in.nowMs-state.plan.epochMs)+in.frameMs),in.world.player));
     EvaluateSafe(in,state,out);
@@ -1035,7 +1296,7 @@ const char* StatusName(Status s) {
     case Status::Clear: return "Clear - preserving input";
     case Status::Waiting: return "Waiting for departure";
     case Status::Moving: return "Dodging";
-    case Status::Recovery: return "Recovery - minimizing damage";
+    case Status::Recovery: return "Recovery / limited safe plan";
     case Status::NoPlan: return "No safe route found";
     case Status::Incomplete: return "Incomplete prediction/search";
     case Status::Locked: return "Movement restricted";

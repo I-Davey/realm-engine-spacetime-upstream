@@ -72,7 +72,7 @@ namespace {
             const int n = atoi(key.c_str() + 6);
             if (n >= 0 && n <= 9) return VK_NUMPAD0 + n;
         }
-        static const std::pair<const char*, int> named[] = {{"SPACE", VK_SPACE}, {"TAB", VK_TAB}, {"ESC", VK_ESCAPE}, {"ESCAPE", VK_ESCAPE}, {"SHIFT", VK_SHIFT}, {"CTRL", VK_CONTROL}, {"CONTROL", VK_CONTROL}, {"ALT", VK_MENU}, {"MENU", VK_MENU}, {"INSERT", VK_INSERT}, {"INS", VK_INSERT}, {"DELETE", VK_DELETE}, {"DEL", VK_DELETE}, {"HOME", VK_HOME}, {"END", VK_END}, {"PAGEUP", VK_PRIOR}, {"PGUP", VK_PRIOR}, {"PAGEDOWN", VK_NEXT}, {"PGDN", VK_NEXT}, {"UP", VK_UP}, {"DOWN", VK_DOWN}, {"LEFT", VK_LEFT}, {"RIGHT", VK_RIGHT}};
+        static const std::pair<const char*, int> named[] = {{"MOUSE3", VK_MBUTTON}, {"MOUSE4", VK_XBUTTON1}, {"MOUSE5", VK_XBUTTON2}, {"SPACE", VK_SPACE}, {"TAB", VK_TAB}, {"ESC", VK_ESCAPE}, {"ESCAPE", VK_ESCAPE}, {"SHIFT", VK_SHIFT}, {"CTRL", VK_CONTROL}, {"CONTROL", VK_CONTROL}, {"ALT", VK_MENU}, {"MENU", VK_MENU}, {"INSERT", VK_INSERT}, {"INS", VK_INSERT}, {"DELETE", VK_DELETE}, {"DEL", VK_DELETE}, {"HOME", VK_HOME}, {"END", VK_END}, {"PAGEUP", VK_PRIOR}, {"PGUP", VK_PRIOR}, {"PAGEDOWN", VK_NEXT}, {"PGDN", VK_NEXT}, {"UP", VK_UP}, {"DOWN", VK_DOWN}, {"LEFT", VK_LEFT}, {"RIGHT", VK_RIGHT}};
         for (const auto& kv : named) if (key == kv.first) return kv.second;
         return 0;
     }
@@ -267,6 +267,14 @@ namespace {
     bool ApplySpacetimeFeature(const FeatureCommand& f)
     {
         static const FeatureHandler h[] = {
+            FH_FLOAT("spacetimeStationaryLookRange", SpacetimeDodge::SetStationaryLookRange),
+            FH_FLOAT("spacetimeStationaryContactScale", SpacetimeDodge::SetStationaryContactScale),
+            FH_FLOAT("spacetimeStationaryHorizonMs", SpacetimeDodge::SetStationaryHorizonMs),
+            FH_FLOAT("spacetimeStationaryMaxDistance", SpacetimeDodge::SetStationaryMaxDistance),
+            FH_FLOAT("spacetimeStationaryEnemyScale", SpacetimeDodge::SetStationaryEnemyScale),
+            FH_FLOAT("spacetimeStationarySearchBudgetMs", SpacetimeDodge::SetStationarySearchBudgetMs),
+            FH("spacetimeBypassKey", SpacetimeDodge::SetBypassKey(ResolveHotkeyVkInternal(f.value))),
+            FH("spacetimeOverlayKey", SpacetimeDodge::SetOverlayKey(ResolveHotkeyVkInternal(f.value))),
             FH_BOOL("spacetimeDebugOverlay", SpacetimeDodge::SetDebugOverlay),
             FH_BOOL("spacetimeShadowMode", SpacetimeDodge::SetShadowMode),
             FH_FLOAT("spacetimeLookRange", SpacetimeDodge::SetLookRange),
@@ -283,6 +291,8 @@ namespace {
     bool ApplyTargetAssistFeature(const FeatureCommand& f)
     {
         static const FeatureHandler h[] = {
+            FH("targetAssistSelectKey", TargetAssist::SetSelectKey(ResolveHotkeyVkInternal(f.value))),
+            FH("targetAssistClearKey", TargetAssist::SetClearKey(ResolveHotkeyVkInternal(f.value))),
             FH_BOOL("targetAssistEnabled", TargetAssist::SetEnabled),
             FH_BOOL("targetAssistDebug", TargetAssist::SetDebugOverlay),
             FH_FLOAT("targetAssistRangeFactor", TargetAssist::SetRangeSafetyFactor),

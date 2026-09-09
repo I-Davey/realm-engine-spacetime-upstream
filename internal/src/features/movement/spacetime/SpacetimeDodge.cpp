@@ -35,10 +35,18 @@ namespace SpacetimeDodge {
 namespace {
 using namespace UDodge;
 std::atomic<bool> enabled{false}, overlay{true}, shadow{false}, reset{true};
-std::atomic<float> lookRange{16.f},contactScale{1.f},horizonMs{800.f},maxDistance{3.f};
-std::atomic<float> enemyScale{1.f},searchBudgetMs{4.f};
+std::atomic<float> lookRange{3.5f},contactScale{1.f},horizonMs{1475.f},maxDistance{4.5f};
+std::atomic<float> enemyScale{.2f},searchBudgetMs{8.f};
 std::atomic<bool> avoidBlocks{false};
 std::atomic<bool> recordReplays{false};
+std::atomic<float> stationaryLookRange{10.f};
+std::atomic<float> stationaryContactScale{0.95f};
+std::atomic<float> stationaryHorizonMs{4000.0f};
+std::atomic<float> stationaryMaxDistance{6.5f};
+std::atomic<float> stationaryEnemyScale{0.1f};
+std::atomic<float> stationarySearchBudgetMs{8.0f};
+std::atomic<int> bypassKey{VK_SHIFT},overlayKey{0};
+bool lastMovingProfile=false;
 std::atomic<ULONGLONG> rangePreviewUntil{0},distancePreviewUntil{0};
 State state;
 NavigationState navigation;
@@ -61,11 +69,11 @@ struct Debug {
         frameMs=0.f, stepMs=0.f, leadMs=0.f, availableMs=0.f;
     float lookRange=16.f,contactScale=1.f,horizonMs=800.f,maxDistance=3.f;
     float enemyScale=1.f,searchBudgetMs=4.f;
-    bool avoidBlocks=false;
+    bool avoidBlocks=false, movingProfile=false;
     float requestedHorizonMs=800.f,requestedMaxDistance=3.f;
     bool evaluated=false;
     Replay::Audit prediction{};
-    bool immediateGuard=false;
+    bool immediateGuard=false, overrideActive=false;
     int bullets=0, considered=0, enemies=0, zones=0, provisional=0, beams=0;
     int aoeHooks=0, capturedAoes=0;
     std::array<int,4> aoeSources{};
@@ -295,26 +303,44 @@ bool GetAvoidBlocks() { return avoidBlocks.load(); }
 void SetSearchBudgetMs(float value) { SetValue(searchBudgetMs,value,.5f,12.f); }
 float GetSearchBudgetMs() { return searchBudgetMs.load(); }
 
+void SetStationaryLookRange(float value) { SetValue(stationaryLookRange,value,2.0f,32.0f); }
+float GetStationaryLookRange() { return stationaryLookRange.load(); }
+void SetStationaryContactScale(float value) { SetValue(stationaryContactScale,value,0.25f,3.0f); }
+float GetStationaryContactScale() { return stationaryContactScale.load(); }
+void SetStationaryHorizonMs(float value) { SetValue(stationaryHorizonMs,value,400.0f,4000.0f); }
+float GetStationaryHorizonMs() { return stationaryHorizonMs.load(); }
+void SetStationaryMaxDistance(float value) { SetValue(stationaryMaxDistance,value,0.25f,12.0f); }
+float GetStationaryMaxDistance() { return stationaryMaxDistance.load(); }
+void SetStationaryEnemyScale(float value) { SetValue(stationaryEnemyScale,value,0.1f,3.0f); }
+float GetStationaryEnemyScale() { return stationaryEnemyScale.load(); }
+void SetStationarySearchBudgetMs(float value) { SetValue(stationarySearchBudgetMs,value,0.5f,12.0f); }
+float GetStationarySearchBudgetMs() { return stationarySearchBudgetMs.load(); }
+void SetBypassKey(int key) { bypassKey.store(std::clamp(key,0,255)); }
+bool BypassHeld() { const int key=bypassKey.load(); return key>0 && (GetAsyncKeyState(key)&0x8000)!=0; }
+void SetOverlayKey(int key) { overlayKey.store(std::clamp(key,0,255)); }
+
 static bool RenderControls() {
+    static bool stationary=false;
+    ImGui::Checkbox("Edit stationary profile##st",&stationary);
     bool changed=false;
-    float range=GetLookRange();
-    if(ImGui::SliderFloat("Look range (tiles)##st",&range,2.f,32.f,"%.1f")) { SetLookRange(range); changed=true; }
+    float range=(stationary?GetStationaryLookRange():GetLookRange());
+    if(ImGui::SliderFloat("Look range (tiles)##st",&range,2.f,32.f,"%.1f")) { (stationary?SetStationaryLookRange:SetLookRange)(range); changed=true; }
     if(ImGui::IsItemHovered()) ImGui::SetTooltip("Includes projectile paths entering this radius during lookahead.\nShots whose whole path stays outside are excluded.");
-    float scale=GetContactScale();
-    if(ImGui::SliderFloat("Contact size##st",&scale,.25f,3.f,"%.2fx")) { SetContactScale(scale); changed=true; }
+    float scale=(stationary?GetStationaryContactScale():GetContactScale());
+    if(ImGui::SliderFloat("Contact size##st",&scale,.25f,3.f,"%.2fx")) { (stationary?SetStationaryContactScale:SetContactScale)(scale); changed=true; }
     if(ImGui::IsItemHovered()) ImGui::SetTooltip("Multiplies each projectile's collision radius in BOTH the solver and drawings.\nThe player remains a point. No cushion is added.");
-    float horizon=GetHorizonMs();
-    if(ImGui::SliderFloat("Lookahead (ms)##st",&horizon,400.f,4000.f,"%.0f")) { SetHorizonMs(horizon); changed=true; }
+    float horizon=(stationary?GetStationaryHorizonMs():GetHorizonMs());
+    if(ImGui::SliderFloat("Lookahead (ms)##st",&horizon,400.f,4000.f,"%.0f")) { (stationary?SetStationaryHorizonMs:SetHorizonMs)(horizon); changed=true; }
     if(ImGui::IsItemHovered()) ImGui::SetTooltip("Normal prediction horizon, not a departure timer.\nMovement still waits until required. Known bombs can extend this horizon.");
-    float distance=GetMaxDistance();
-    if(ImGui::SliderFloat("Normal dodge budget (tiles)##st",&distance,.25f,12.f,"%.2f")) { SetMaxDistance(distance); changed=true; }
+    float distance=(stationary?GetStationaryMaxDistance():GetMaxDistance());
+    if(ImGui::SliderFloat("Normal dodge budget (tiles)##st",&distance,.25f,12.f,"%.2f")) { (stationary?SetStationaryMaxDistance:SetMaxDistance)(distance); changed=true; }
     if(ImGui::IsItemHovered()) ImGui::SetTooltip("Maximum normal path budget, not a requested movement distance.\nIncreasing it need not change an already small dodge.\nKnown wide blasts can extend path/time budgets to permit escape.");
-    float enemies=GetEnemyScale();
-    if(ImGui::SliderFloat("Enemy avoidance size##st",&enemies,.1f,3.f,"%.2fx")) { SetEnemyScale(enemies); changed=true; }
+    float enemies=(stationary?GetStationaryEnemyScale():GetEnemyScale());
+    if(ImGui::SliderFloat("Enemy avoidance size##st",&enemies,.1f,3.f,"%.2fx")) { (stationary?SetStationaryEnemyScale:SetEnemyScale)(enemies); changed=true; }
     bool blocks=GetAvoidBlocks();
     if(ImGui::Checkbox("Steer around harmless blocks while walking##st",&blocks)) { SetAvoidBlocks(blocks); changed=true; }
-    float search=GetSearchBudgetMs();
-    if(ImGui::SliderFloat("Route search budget (ms)##st",&search,.5f,12.f,"%.1f")) { SetSearchBudgetMs(search); changed=true; }
+    float search=(stationary?GetStationarySearchBudgetMs():GetSearchBudgetMs());
+    if(ImGui::SliderFloat("Route search budget (ms)##st",&search,.5f,12.f,"%.1f")) { (stationary?SetStationarySearchBudgetMs:SetSearchBudgetMs)(search); changed=true; }
     return changed;
 }
 
@@ -358,7 +384,8 @@ bool FilterWalkingMove(void* player,float requestedX,float requestedY,float& x,f
     return true;
 }
 void NativeMoveFeedback(bool accepted,float,float) {
-    if(accepted) ++nativeOverrides; else { ++nativeFailures; state.Reset(); }
+    if(accepted) ++nativeOverrides;
+    else { ++nativeFailures; state.Reset(); }
     if(replayRecorder.hasPrevious && replayRecorder.previous.native) {
         replayRecorder.previous.applied=accepted; replayRecorder.previous.rejected=!accepted;
         replayRecorder.previous.feedbackKnown=true;
@@ -377,9 +404,21 @@ void Tick(void* player,float x,float y,float dt) {
     if(!nativeMode) DodgeRuntime::EnsureMovementFilter(player,&FilterWalkingMove,&NativeMoveFeedback);
     Debug d{};
     d.native=nativeMode;
-    d.lookRange=GetLookRange(); d.contactScale=GetContactScale();
-    d.horizonMs=GetHorizonMs(); d.maxDistance=GetMaxDistance();
-    d.enemyScale=GetEnemyScale(); d.avoidBlocks=GetAvoidBlocks(); d.searchBudgetMs=GetSearchBudgetMs();
+    const auto firing=player?TargetAssist::GetFiringZone(player):TargetAssist::FiringZone{};
+    const bool scriptMoving=FeatureState::GetWalkTargetActive() &&
+        Len(Sub({FeatureState::GetWalkTargetX(),FeatureState::GetWalkTargetY()},{x,y}))>.2f;
+    const bool assistMoving=firing.active && (!TargetAssist::CanHitFrom(firing,x,y) ||
+        (navigation.entering && !TargetAssist::CanHitFrom(firing,x,y,std::min(.12f,firing.range*.05f))));
+    d.movingProfile=SteerInput::Get().active || scriptMoving || assistMoving;
+    if(d.movingProfile!=lastMovingProfile) { state.Reset(); map=DangerMap{}; lastMovingProfile=d.movingProfile; }
+    static bool overlayWasDown=false;
+    const int overlayVk=overlayKey.load();
+    const bool overlayDown=overlayVk>0 && (GetAsyncKeyState(overlayVk)&0x8000)!=0;
+    if(overlayDown && !overlayWasDown) SetDebugOverlay(!GetDebugOverlay());
+    overlayWasDown=overlayDown;
+    d.lookRange=(d.movingProfile?GetLookRange():GetStationaryLookRange()); d.contactScale=(d.movingProfile?GetContactScale():GetStationaryContactScale());
+    d.horizonMs=(d.movingProfile?GetHorizonMs():GetStationaryHorizonMs()); d.maxDistance=(d.movingProfile?GetMaxDistance():GetStationaryMaxDistance());
+    d.enemyScale=(d.movingProfile?GetEnemyScale():GetStationaryEnemyScale()); d.avoidBlocks=GetAvoidBlocks(); d.searchBudgetMs=(d.movingProfile?GetSearchBudgetMs():GetStationarySearchBudgetMs());
     d.requestedHorizonMs=d.horizonMs; d.requestedMaxDistance=d.maxDistance;
     d.nowMs=DodgeRuntime::GetMovementTimeMs(); d.player={x,y};
     if(!player || !std::isfinite(x) || !std::isfinite(y) || !DodgeRuntime::EnsureResolved()) {
@@ -393,8 +432,8 @@ void Tick(void* player,float x,float y,float dt) {
         state.Reset(); navigation.Reset(); map=DangerMap{}; replayRecorder.hasPrevious=false;
     }
     lastPlayer=player; lastTick=now; lastPosition={x,y};
-    d.bypass=(GetAsyncKeyState(VK_SHIFT)&0x8000)!=0;
-    if(d.bypass) { state.Reset(); navigation.Reset(); d.out.status=Status::Clear; d.action="Shift bypass"; Publish(d); return; }
+    d.bypass=BypassHeld();
+    if(d.bypass) { state.Reset(); navigation.Reset(); d.out.status=Status::Clear; d.action="Movement bypass"; Publish(d); return; }
     const float speed=DodgeRuntime::GetVerifiedTilesPerSec(player);
     if(Locked(player) || speed==0.f) {
         state.Reset(); navigation.Reset(); d.out.status=Status::Locked; d.action="movement condition / zero speed"; Publish(d); return;
@@ -464,7 +503,6 @@ void Tick(void* player,float x,float y,float dt) {
     d.leadMs=in.settings.leadMs; d.availableMs=nativeMode?in.frameMs:DodgeRuntime::GetFrameMoveMs();
     LARGE_INTEGER begin{},end{},freq{};
     QueryPerformanceFrequency(&freq); QueryPerformanceCounter(&begin);
-    const auto firing=TargetAssist::GetFiringZone(player);
     MovementGoal goal{};
     goal.active=firing.active; goal.identity=static_cast<uint64_t>(firing.targetId);
     goal.center={firing.targetX,firing.targetY}; goal.range=firing.range; goal.context=&firing;
@@ -480,10 +518,7 @@ void Tick(void* player,float x,float y,float dt) {
     goal=SelectMovementGoal(waypoint,goal);
     MovementDecision decision{};
     EvaluateMovement(in,steer.active,goal,state,navigation,decision);
-    if(nativeMode && ProtectImmediateStep(in,decision.dodge)) {
-        d.immediateGuard=true; state.Reset(); navigation.Reset();
-        decision.action="protecting immediate walking step / route unproven";
-    }
+    d.overrideActive=decision.overrideActive;
     d.evaluated=true;
     d.out=decision.dodge; d.hasGoal=goal.active; d.goal=goal.center; d.approaching=decision.approaching;
     d.goalWaypoint=goal.waypoint; d.detouring=decision.detouring;
@@ -496,15 +531,37 @@ void Tick(void* player,float x,float y,float dt) {
         d.out.status==Status::NoPlan || d.out.status==Status::Incomplete?"no executable route":decision.action;
     if(nativeMode) {
         Vec2 target{};
-        if(!GetShadowMode() && NativeMovementTarget(in,d.out,target)) {
+        if(!GetShadowMode()) {
             const float liveSpeed=DodgeRuntime::GetVerifiedTilesPerSec(player)/1000.f;
-            if(std::fabs(liveSpeed-in.world.speed)>1e-6f ||
-               !OccupancyPathClear(in.world,in.world.player,target) || !EnemyPathClear(in.world,in.world.player,target) ||
-               d.captureMs+d.solveMs>frame) {
-                d.rejected=true; d.action="native step failed final validation"; state.Reset();
-            } else {
+            if(!std::isfinite(liveSpeed) || liveSpeed<=0.f) {
+                // A restriction appearing during search cannot authorize the
+                // old-speed endpoint. Retain ownership while movement is unavailable.
+                nativeTarget=in.world.player; nativeChanged=Len(Sub(nativeRequested,nativeTarget))>1e-6f;
+                state.Reset();
+                navigation.overrideActive=true; d.overrideActive=true; d.out.velocity={};
+                d.out.status=liveSpeed==0.f?Status::Locked:Status::Incomplete;
+                d.action="movement restricted / native step held";
+                replayRecorder.Observe(in,d); Publish(d); return;
+            }
+            const bool speedChanged=std::fabs(liveSpeed-in.world.speed)>1e-6f;
+            const bool usable=!speedChanged && d.captureMs+d.solveMs<=frame;
+            if(!usable) { state.Reset(); }
+            Input current=in;
+            if(speedChanged && std::isfinite(liveSpeed) && liveSpeed>0.f) {
+                current.world.speed=liveSpeed;
+                current.nominal=Mul(Normalize(in.nominal),liveSpeed);
+                current.maxCorrectionSpeed=liveSpeed*2.f;
+            }
+            if(ResolveNativeMovementTarget(current,d.out,usable,
+                navigation.overrideActive || speedChanged,nativeRequested,target)) {
                 nativeTarget=target; nativeChanged=true; d.command=Sub(target,in.world.player);
+                if(decision.overrideActive || d.out.status==Status::Recovery) navigation.overrideActive=true;
+                d.overrideActive=navigation.overrideActive;
                 d.action="native walking replacement selected";
+            }
+            if(d.out.reason==Reason::CommandBlocked && d.out.status==Status::Recovery) {
+                d.immediateGuard=true; state.Reset();
+                d.action="dodge owns movement / emergency step";
             }
         }
         replayRecorder.Observe(in,d); Publish(d); return;
@@ -562,7 +619,7 @@ ImU32 TimeColor(float time,int alpha,float horizon) {
 }
 
 void RenderSettings() {
-    ImGui::TextWrapped("Spacetime: latest safe departure, minimal correction. Hold Shift to bypass.");
+    ImGui::TextWrapped("Spacetime: latest safe departure, minimal correction. The configured bypass key returns manual control.");
     bool show=GetDebugOverlay();
     if(ImGui::Checkbox("Movement & threat overlay##spacetime",&show)) SetDebugOverlay(show);
     bool observe=GetShadowMode();
@@ -570,8 +627,9 @@ void RenderSettings() {
     RenderControls();
     const auto applied=ReadDebug();
     const bool fresh=applied.evaluated && DodgeRuntime::GetMovementTimeMs()-applied.nowMs<250.;
-    const bool matching=fresh && applied.lookRange==GetLookRange() && applied.contactScale==GetContactScale() &&
-        applied.requestedHorizonMs==GetHorizonMs() && applied.requestedMaxDistance==GetMaxDistance();
+    const bool matching=fresh && applied.lookRange==(applied.movingProfile?GetLookRange():GetStationaryLookRange()) && applied.contactScale==(applied.movingProfile?GetContactScale():GetStationaryContactScale()) &&
+        applied.requestedHorizonMs==(applied.movingProfile?GetHorizonMs():GetStationaryHorizonMs()) && applied.requestedMaxDistance==(applied.movingProfile?GetMaxDistance():GetStationaryMaxDistance());
+    ImGui::Text("Active profile: %s",applied.movingProfile?"Moving":"Stationary");
     if(matching) ImGui::Text("Planner uses: %.1f tiles | %.2fx contact | %.0f ms | %.2f tiles",
         applied.lookRange,applied.contactScale,applied.horizonMs,applied.maxDistance);
     else ImGui::TextWrapped("Settings awaiting planner evaluation: %s",applied.action);
@@ -595,6 +653,7 @@ void RenderSettings() {
         ImGui::TextWrapped("%s | %s",StatusName(o.status),d.action);
         if(d.hasGoal) ImGui::TextWrapped("Scripts supply travel goals; Target Assist supplies firing zones. Spacetime alone selects and executes movement.");
         ImGui::Text("Speed %.2f t/s | capture %.2f ms | solve %.2f ms",d.speed,d.captureMs,d.solveMs);
+        ImGui::Text("Profile: %s",d.movingProfile?"Moving":"Stationary");
         ImGui::Text("Lookahead %.0f ms | search cap %.1f ms | enemy size %.2fx",d.horizonMs,d.searchBudgetMs,d.enemyScale);
         ImGui::Text("Harmless block steering: %s",d.avoidBlocks?"on":"off");
         ImGui::Text("Shots %d shown / %d considered / %d captured",d.drawnLanes,d.considered,d.bullets);
@@ -606,12 +665,15 @@ void RenderSettings() {
         if(d.terrainAtPlayer) ImGui::TextWrapped("Current position fails terrain occupancy; inspect the wall/map boundary.");
         ImGui::TextWrapped("Reason: %s | replan: %s",ReasonName(o.reason),ReasonName(o.replanReason));
         ImGui::Text("Departure %.0f ms | correction %.2f tiles",o.waitMs,o.plan.intervention);
-        if(o.status==Status::Recovery)
-            ImGui::Text("Recovery: %d hits | damage score %.0f%s",o.expectedHits,o.estimatedDamage,
+        if(o.status==Status::Recovery) {
+            if(o.expectedHits==0) ImGui::TextWrapped("Emergency step: no predicted hits in the checked interval; full route unavailable.");
+            else ImGui::Text("Predicted contacts: %d | damage estimate %.0f%s",o.expectedHits,o.estimatedDamage,
                 o.unknownDamage?" (includes unknown)":" (raw damage)");
+        }
         ImGui::Text("Applied %u | deferred %u | rejected %u",d.moves,d.deferrals,d.rejections);
         ImGui::Text("Walking hook: %s | calls %u / replacements %u / rejected %u",
             d.walkingHook?"installed":"unavailable",d.nativeCalls,d.nativeOverrides,d.nativeFailures);
+        ImGui::Text("Movement owner: %s",d.overrideActive?"dodge (requested path unsafe)":"player / navigation");
         ImGui::Text("Non-walking/invalid native calls skipped: %u",nativeSkipped.load());
         ImGui::Text("Rejects: shots %d / terrain %d / enemies %d / zones %d",
             s.projectileRejects,s.terrainRejects,s.enemyRejects,s.zoneRejects);
@@ -878,10 +940,10 @@ void RenderDebugOverlay(float camX,float camY,float angle,float zoom,float cx,fl
     const bool blocked=d.rejected || d.deferred || d.out.status==Status::NoPlan || d.out.status==Status::Incomplete;
     const char* status=!fresh?"Awaiting game capture":d.bypass?"Manual control":
         d.out.status==Status::Locked?"Movement locked":blocked?"No validated passage":
-        d.out.status==Status::Recovery?"Reducing unavoidable damage":
+        d.out.status==Status::Recovery?(d.out.expectedHits>0?"Reducing predicted contact":"Emergency steering"):
         !moving && d.out.waitMs>0.f?"Waiting for an opening":d.detouring?"Taking a safe detour":
         d.approaching?"Travelling to position":d.native && moving?"Following your direction":
-        moving?"Avoiding contact":"Holding safe ground";
+        moving?"Avoiding contact":d.native && Len(d.nominal)>1e-6f?"Waiting for a safe passage":"Holding safe ground";
     ImU32 accent=blocked || d.out.status==Status::Recovery?DebugStyle::coral:
         !fresh || d.out.status==Status::Locked || (!moving && d.out.waitMs>0.f)?DebugStyle::amber:DebugStyle::mint;
     char detail[100];
@@ -890,7 +952,7 @@ void RenderDebugOverlay(float camX,float camY,float angle,float zoom,float cx,fl
     else if(showGrid && gridTexture.valid && DodgeRuntime::GetMovementTimeMs()-gridTexture.grid.capture>100.)
         std::snprintf(detail,sizeof(detail),"Prediction refreshing  /  %.0f ms old",DodgeRuntime::GetMovementTimeMs()-gridTexture.grid.capture);
     else if(!moving && d.out.waitMs>0.f) std::snprintf(detail,sizeof(detail),"Resume in %.0f ms",d.out.waitMs);
-    else std::snprintf(detail,sizeof(detail),"%s",d.bypass?"Shift bypass":d.native?"Keyboard intent  /  live speed":
+    else std::snprintf(detail,sizeof(detail),"%s",d.bypass?"Movement bypass":d.native?"Keyboard intent  /  live speed":
         d.approaching?d.goalWaypoint?"Script destination  /  live speed":"Firing position  /  live speed":"Move only when needed");
     DebugStyle::Hud(draw,{16.f,std::max(16.f,display.y-104.f)},std::min(338.f,display.x-32.f),
         status,detail,accent,d.speed,d.considered,GetShadowMode());

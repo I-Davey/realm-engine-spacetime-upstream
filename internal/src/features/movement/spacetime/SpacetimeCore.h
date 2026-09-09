@@ -55,6 +55,13 @@ struct Input {
     float maxCorrectionSpeed = 0.f; // tiles/ms; zero uses world.speed
     bool collectDiagnostics = false;
     bool expandedForZones = false;
+    // Spatial guidance only. The temporal planner alone selects movement.
+    struct Guidance {
+        bool active=false, manual=false;
+        uint64_t identity=0;
+        int count=0;
+        std::array<Vec2,128> points{};
+    } guidance;
     Settings settings{};
     int zoneCount = 0;
     std::array<TimedZone, kMaxTimedZones> zones{};
@@ -72,6 +79,8 @@ struct Plan {
 struct State {
     Plan plan{};
     bool valid = false;
+    uint64_t goalIdentity=0;
+    Vec2 goal{};
     void Reset() { *this = State{}; }
 };
 struct Output {
@@ -95,11 +104,11 @@ Vec2 PositionAt(const Plan& plan, float timeMs);
 // moving projectiles, beams and timed zones. Never slides or shortens a plan.
 bool Validate(const Input& in, const Plan& plan);
 // Validate a proposed finite intention and the actual straight command slice.
-// This does not replace or mutate the retained emergency dodge plan.
+// This does not mutate the single retained movement plan.
 bool EvaluateTrajectory(const Input& in, const Plan& plan, Output& out);
 // Last-resort command protection when no complete trajectory was found. A
-// short safe prefix is explicitly Recovery, never advertised as a safe route.
-bool ProtectImmediateStep(const Input& in,Output& out);
+// safe or least-damage finite prefix is Recovery, never a certified full route.
+bool ProtectImmediateStep(const Input& in,Output& out,bool retainControl=false);
 // Manual takeover tests damage/threats, not harmless scenery or slow terrain.
 // This is not permission for an automatic route to cross a solid obstacle.
 bool KeyboardIntentSafe(const Input& in);

@@ -107,8 +107,8 @@ static void WallAndBombTests() {
 }
 static void NativeWalkingTests() {
     auto in=Scene(); in.settings.leadMs=35.f; in.settings.stepMs=50.f;
-    Check(PrepareNativeMovement(in,{.1f,0.f}) && in.settings.leadMs==0.f && in.actuationMs==20.f,
-        "native walking replacement has no auxiliary command cooldown");
+    Check(PrepareNativeMovement(in,{.1f,0.f}) && in.settings.leadMs==0.f && in.actuationMs==0.f,
+        "native walking replacement models continuous control without an auxiliary cooldown");
     Output selected{}; selected.status=Status::Moving; selected.velocity={0.f,.005f};
     Vec2 target{};
     Check(NativeMovementTarget(in,selected,target) && std::fabs(target.x)<1e-6f && std::fabs(target.y-.1f)<1e-6f,
@@ -161,12 +161,97 @@ static void NativeWalkingTests() {
             // post-update correction and keys cannot undo the selected step.
             position=executed; elapsed+=in.frameMs;
         }
+        if(!safe || !redirects || !delayed) std::printf("WALK scenario=%d safe=%d redirects=%d delayed=%d pos=%.3f,%.3f\n",scenario,safe,redirects,delayed,position.x,position.y);
         Check(safe && redirects>0 && delayed,scenario==0?"held walking avoids crossing shot with delayed native replacement":
             scenario==1?"walking stays swept-safe across changing frame lengths":
             scenario==2?"walking revalidates when Slow changes an ongoing escape":
             "walking avoids the crossing shot when native movement uses 20ms and rendering reports 8ms");
     }
 }
+static void MovementOwnershipTests() {
+    for(const int releaseAt:{400,1600}) {
+        State state{}; NavigationState nav{}; MovementDecision decision{};
+        Vec2 position{}; bool protectedAll=true,owned=false,released=false;
+        for(int t=0;t<=releaseAt;t+=20) {
+            auto in=Scene(); in.world.player=position; in.nowMs+=t;
+            in.world.settings.hitScale=1.f; in.settings.horizonMs=400.f;
+            in.world.speed=t>=200?.003f:.005f;
+            in.world.env.canOccupy=[](float,float y,bool){return std::fabs(y)<.001f;};
+            if(t<releaseAt) Shot({.14f,0.f},{.14f,0.f},400.f,.05f);
+            Vec2 requested=Add(position,{in.world.speed*20.f,0.f});
+            PrepareNativeMovement(in,requested);
+            EvaluateMovement(in,true,{},state,nav,decision);
+            Vec2 executed=requested;
+            ResolveNativeMovementTarget(in,decision.dodge,true,nav.overrideActive,requested,executed);
+            if(t<releaseAt) {
+                protectedAll &= !SweptProjectileContact(Sub({.14f,0.f},position),Sub({.14f,0.f},executed),.05f);
+                owned |= nav.overrideActive;
+                protectedAll &= !owned || nav.overrideActive;
+            } else released=!nav.overrideActive && Len(Sub(executed,requested))<1e-6f;
+            position=executed;
+        }
+        Check(protectedAll && owned,"unsafe held walking stays overridden through speed changes and route expiry");
+        Check(released,"requested movement resumes on the first safe evaluation, independent of threat duration");
+    }
+    State state{}; NavigationState nav{}; MovementDecision decision{};
+    Vec2 position{}; bool safe=true,progress=false,owned=false;
+    // Start boxed in, then expose a lateral passage while the forward bullet
+    // remains. A dodge hold must discover that passage without a key release.
+    for(int t=0;t<1800;t+=20) {
+        auto in=Scene(); in.world.player=position; in.nowMs+=t;
+        in.world.settings.hitScale=1.f;
+        if(t<300) in.world.env.canOccupy=[](float,float y,bool){return std::fabs(y)<.001f;};
+        Shot({.14f,0.f},{.14f,0.f},800.f,.05f);
+        Vec2 requested=Add(position,{.1f,0.f}); PrepareNativeMovement(in,requested);
+        EvaluateMovement(in,true,{},state,nav,decision);
+        Vec2 executed=requested;
+        ResolveNativeMovementTarget(in,decision.dodge,true,nav.overrideActive,requested,executed);
+        safe &= !SweptProjectileContact(Sub({.14f,0.f},position),Sub({.14f,0.f},executed),.05f);
+        owned |= nav.overrideActive; position=executed; progress |= position.x>1.f;
+    }
+    Check(safe && owned && progress,"rushing finds a passage past a persistent projectile after an initial hold");
+    auto in=Scene(); in.world.settings.hitScale=1.f;
+    Shot({.14f,0.f},{.14f,0.f},800.f,.05f);
+    nav.Reset(); state.Reset(); nav.overrideActive=true;
+    PrepareNativeMovement(in,{-.1f,0.f});
+    EvaluateMovement(in,true,{},state,nav,decision);
+    Check(!nav.overrideActive && decision.dodge.velocity.x<0.f,
+        "a safe retreat immediately releases dodge ownership without waiting for the forward threat to disappear");
+
+    in=Scene(); in.world.settings.hitScale=1.f; PrepareNativeMovement(in,{.1f,0.f});
+    Shot({.09f,0.f},{.09f,0.f},800.f,.025f);
+    Output rejected{}; rejected.status=Status::Moving; rejected.velocity={.005f,0.f};
+    Vec2 executed{.1f,0.f};
+    Check(ResolveNativeMovementTarget(in,rejected,false,true,{.1f,0.f},executed) &&
+        !SweptProjectileContact({.09f,0.f},Sub({.09f,0.f},executed),.025f),
+        "final-validation rejection selects a protected replacement instead of executing unsafe raw keys");
+    // Both choices touch the first projectile. Driving ahead also touches the
+    // higher-damage projectile, so an existing hit cannot disable the guard.
+    in=Scene(); in.world.settings.hitScale=1.f; PrepareNativeMovement(in,{.1f,0.f});
+    Shot({0.f,0.f},{0.f,0.f},800.f,.02f); map.lanes[0].damageEstimate=10.f;
+    Shot({.09f,0.f},{.09f,0.f},800.f,.025f); map.lanes[1].damageEstimate=100.f;
+    rejected={}; rejected.status=Status::NoPlan;
+    Check(ResolveNativeMovementTarget(in,rejected,false,true,{.1f,0.f},executed) &&
+        rejected.expectedHits==1 && rejected.estimatedDamage==10.f,
+        "overlapping contact keeps control and avoids the additional higher-damage bullet");
+
+    in=Scene(); in.world.settings.hitScale=1.f; PrepareNativeMovement(in,{-.1f,0.f});
+    Shot({.09f,0.f},{.09f,0.f},800.f,.025f);
+    Shot({-.09f,0.f},{-.09f,0.f},800.f,.025f);
+    nav.Reset(); state.Reset(); nav.overrideActive=true; nav.directional=true; nav.direction={1.f,0.f};
+    EvaluateMovement(in,true,{},state,nav,decision); executed={-.1f,0.f};
+    ResolveNativeMovementTarget(in,decision.dodge,true,nav.overrideActive,{-.1f,0.f},executed);
+    Check(nav.overrideActive && !SweptProjectileContact({-.09f,0.f},Sub({-.09f,0.f},executed),.025f) &&
+        !SweptProjectileContact({.09f,0.f},Sub({.09f,0.f},executed),.025f),
+        "reversing into another threat keeps ownership and selects a protected escape");
+
+    in=Scene(); PrepareNativeMovement(in,{.1f,0.f});
+    in.world.speed=.002f; in.nominal={.002f,0.f}; in.maxCorrectionSpeed=.004f;
+    rejected={}; rejected.status=Status::Incomplete;
+    Check(ResolveNativeMovementTarget(in,rejected,false,true,{.1f,0.f},executed) && Len(executed)<=.04f+1e-6f,
+        "Slow during final validation replaces the original endpoint within the new speed budget");
+}
+
 static void IdleActuatorTests() {
     for(const float frame:{8.333333f,16.666667f,21.4f}) {
         State state{}; NavigationState nav{}; MovementDecision decision{}; MovementGoal goal{};
@@ -509,17 +594,17 @@ static void IntegratedTravelTests() {
 
     in=Scene(); state.Reset(); nav.Reset(); goal.active=true;
     PrepareFrameMovement(in,20.f); EvaluateMovement(in,false,goal,state,nav,out);
-    Check(out.approaching && nav.travelValid,"clear approach caches its finite continuation");
+    Check(out.approaching && state.valid,"clear approach caches its finite continuation");
     map.projectileSourceUnavailable=true; EvaluateMovement(in,false,goal,state,nav,out);
     Check(!out.approaching && Len(out.dodge.velocity)==0.f,
         "cached continuation cannot bypass unavailable projectile capture");
     map.projectileSourceUnavailable=false; goal.active=false;
     EvaluateMovement(in,false,goal,state,nav,out);
-    Check(!nav.travelValid && Len(out.dodge.velocity)==0.f,"cancelling travel discards its cached continuation");
+    Check(!state.valid && Len(out.dodge.velocity)==0.f,"cancelling travel discards its cached continuation");
 
     in=Scene(); state.Reset(); nav.Reset(); goal.active=true;
     PrepareFrameMovement(in,20.f); EvaluateMovement(in,false,goal,state,nav,out);
-    const auto fast=nav.travel;
+    const auto fast=state.plan;
     in.world.speed=.0025f; EvaluateMovement(in,false,goal,state,nav,out);
     Check(!out.dodge.reused && out.approaching && out.dodge.plan.speed!=fast.speed && Validate(in,out.dodge.plan),
         "Slow rechecks the complete travel continuation, not just its first step");
@@ -546,11 +631,11 @@ static void DirectionalTravelTests() {
     in.world.env.canOccupy=WallWithOpening;
     bool safe=true; int stopped=0;
     PrepareNativeMovement(in,{.1f,0.f});
-    nav.directional=true; nav.count=1; nav.travelValid=true;
+    nav.directional=true; nav.count=1; state.valid=true;
     EvaluateMovement(in,true,{},state,nav,out);
     Vec2 untouched{.1f,0.f};
     Check(out.dodge.status==Status::Clear && !NativeMovementTarget(in,out.dodge,untouched) &&
-        !nav.travelValid && nav.count==0,
+        !state.valid && nav.count==0,
         "harmless wall preserves native keyboard input and cancels obsolete automatic detours");
     in.settings.avoidHarmlessBlocks=true;
     EvaluateMovement(in,true,{},state,nav,out);
@@ -663,6 +748,7 @@ static void DenseOpeningTests() {
         Check(state.valid && out.expectedHits==(alreadyHit?1:0) && (!alreadyHit || out.estimatedDamage==10.f) && Validate(in,out.plan),
             "bounded search finds the safe opening in six dense moving waves");
         if(walking && !alreadyHit) {
+            state.Reset(); // exercise cold admission, not an inherited idle solution
             const std::vector<LaneThreat> captured(map.lanes,map.lanes+map.laneCount);
             NavigationState nav{}; MovementDecision decision{};
             float elapsed=0.f; bool safe=true;
@@ -798,7 +884,12 @@ static void MatchingTimeTests() {
     EvaluateMovement(in,false,goal,state,nav,decision);
     const auto departure=decision.dodge.plan.departureMs;
     const auto epoch=decision.dodge.plan.epochMs;
-    Check(decision.approaching && !decision.detouring && decision.dodge.waitMs>0.f &&
+    float crossingRelease=0.f;
+    for(int i=1;i+1<decision.dodge.plan.count;i++)
+        if(Len(Sub(decision.dodge.plan.points[i].pos,decision.dodge.plan.points[i-1].pos))<1e-6f &&
+           Len(Sub(decision.dodge.plan.points[i+1].pos,decision.dodge.plan.points[i].pos))>1e-6f)
+            crossingRelease=decision.dodge.plan.points[i].timeMs;
+    Check(decision.approaching && !decision.detouring && crossingRelease>0.f &&
         Validate(in,decision.dodge.plan),"corridor travel uses a timed opening rather than going around the bullet trail");
     bool retained=true,safe=true;
     for(int i=0;i<70;i++) {
@@ -806,14 +897,75 @@ static void MatchingTimeTests() {
         map.laneCount=0;
         Shot({.6f,-.6f+.005f*age},{.6f,3.4f},800.f-age,.08f);
         EvaluateMovement(in,false,goal,state,nav,decision);
-        if(age<departure) retained &= decision.dodge.plan.epochMs==epoch &&
+        if(age<crossingRelease) retained &= decision.dodge.plan.epochMs==epoch &&
             decision.dodge.plan.departureMs==departure;
         if(decision.approaching) safe &= Validate(in,decision.dodge.plan);
         safe &= std::fabs(decision.dodge.velocity.y)<1e-6f;
         in.world.player=Add(in.world.player,Mul(decision.dodge.velocity,in.frameMs)); in.nowMs+=in.frameMs;
     }
+    if(!(retained && safe && GoalCircle(&goal,in.world.player))) std::printf("CROSS retained=%d safe=%d pos=%.3f,%.3f departure=%.1f status=%s\n",retained,safe,in.world.player.x,in.world.player.y,departure,StatusName(decision.dodge.status));
     Check(retained && safe && GoalCircle(&goal,in.world.player),
         "timed crossing retains its release deadline, passes through and arrives without endless waiting");
+}
+
+static void ForwardPassageTests() {
+    for(int rotation=0;rotation<4;rotation++) {
+        const float angle=rotation*1.57079632679f;
+        const Vec2 right{std::cos(angle),std::sin(angle)},forward{-right.y,right.x};
+        const auto point=[&](float x,float y){return Add(Mul(right,x),Mul(forward,y));};
+        auto in=Scene(); State state{}; NavigationState nav{}; MovementDecision out{};
+        in.world.settings.hitScale=1.f; in.settings.horizonMs=4000.f;
+        PrepareNativeMovement(in,Mul(forward,.1f));
+        Shot(point(-.8f,.8f),point(3.2f,.8f),800.f,.08f);
+        EvaluateMovement(in,true,{},state,nav,out);
+        Check(state.valid && Validate(in,out.dodge.plan) &&
+            Dot(PositionAt(out.dodge.plan,4000.f),forward)>18.f,
+            "four-second keyboard route keeps rewarding progress beyond its temporary waypoint");
+        Check(Dot(PositionAt(out.dodge.plan,200.f),forward)>.8f &&
+            Dot(PositionAt(out.dodge.plan,200.f),right)<-.01f,
+            "crossing shot favors forward passage behind its trailing side in every camera direction");
+    }
+}
+
+static void UnifiedContinuationTests() {
+    auto in=Scene(); State state{}; NavigationState nav{}; MovementDecision out{};
+    const WaypointGoal waypoint{true,{3.f,0.f},.1f};
+    const auto goal=SelectMovementGoal(waypoint,{});
+    PrepareFrameMovement(in,20.f);
+    EvaluateMovement(in,false,goal,state,nav,out);
+    const Plan clearRoute=out.dodge.plan;
+    Check(state.valid && out.approaching && Validate(in,clearRoute),
+        "unified continuation starts with a full safe route to the script goal");
+    in.world.player=Add(in.world.player,Mul(out.dodge.velocity,in.frameMs)); in.nowMs+=in.frameMs;
+    // The first step remains clear, but the destination becomes unsafe later.
+    in.zoneCount=1; in.zones[0]={{2.9f,0.f},.5f,500.f,1000.f};
+    Check(!Validate(in,clearRoute),"later blast invalidates a retained route before it reaches the exit");
+    EvaluateMovement(in,false,goal,state,nav,out);
+    Check(state.valid && !out.dodge.reused && Validate(in,out.dodge.plan) &&
+        PositionAt(out.dodge.plan,800.f).x>1.f &&
+        Len(Sub(PositionAt(out.dodge.plan,800.f),in.zones[0].center))>.5f,
+        "closed exit still permits safe progress with a safe future endpoint");
+    // Cancelling a still-safe travel plan must not keep walking to its old goal.
+    in=Scene(); state.Reset(); nav.Reset(); PrepareFrameMovement(in,20.f);
+    EvaluateMovement(in,false,goal,state,nav,out);
+    EvaluateMovement(in,false,{},state,nav,out);
+    Check(out.dodge.status==Status::Clear && Len(out.dodge.velocity)==0.f && !state.valid,
+        "removing a travel goal immediately returns to safe idle without a timed ownership delay");
+
+    in=Scene(); state.Reset(); nav.Reset(); PrepareFrameMovement(in,20.f);
+    in.world.settings.hitScale=1.f;
+    Shot({0.f,0.f},{0.f,0.f},800.f,.04f); map.lanes[0].damageEstimate=10.f;
+    Shot({.25f,0.f},{.25f,0.f},800.f,.06f); map.lanes[1].damageEstimate=100.f;
+    EvaluateMovement(in,false,goal,state,nav,out);
+    Check(state.valid && out.dodge.status==Status::Recovery && out.dodge.expectedHits==1 &&
+        out.dodge.estimatedDamage==10.f && !out.dodge.unknownDamage && Len(out.dodge.velocity)>.0049f &&
+        PositionAt(out.dodge.plan,800.f).x>1.f,
+        "rush recovery leaves existing low-damage contact and progresses without taking the expensive next bullet");
+    in.world.player=Add(in.world.player,Mul(out.dodge.velocity,in.frameMs)); in.nowMs+=in.frameMs;
+    map.laneCount=0; Shot({.25f,0.f},{.25f,0.f},780.f,.06f); map.lanes[0].damageEstimate=100.f;
+    EvaluateMovement(in,false,goal,state,nav,out);
+    Check(state.valid && out.approaching && out.dodge.expectedHits==0 && Validate(in,out.dodge.plan),
+        "ending unavoidable contact immediately restores safe travel instead of latching recovery");
 }
 
 static void CaptureAndRammingTests() {
@@ -832,7 +984,9 @@ static void CaptureAndRammingTests() {
     map.lanes[0].points[0]=map.lanes[0].points[1]={.8f,0.f};
     Check(!ProtectImmediateStep(in,failed),"distant danger does not activate immediate walking guard");
     map.lanes[0].points[0]=map.lanes[0].points[1]={0.f,0.f};
-    Check(!ProtectImmediateStep(in,failed),"already overlapping is not falsely described as a collision-free prefix");
+    Check(ProtectImmediateStep(in,failed) && failed.status==Status::Recovery && failed.expectedHits>0,
+        "existing contact still selects recovery and reports damage instead of releasing raw input");
+    failed.status=Status::Incomplete;
     map.projectileSourceUnavailable=true;
     Check(!ProtectImmediateStep(in,failed),"missing projectile data cannot certify a safe walking prefix");
 
@@ -921,6 +1075,8 @@ static int ReplayFiles(int argc,char** argv) {
 int main(int argc,char** argv) {
     if(argc>1 && std::strcmp(argv[1],"--replay")==0) return ReplayFiles(argc,argv);
     CaptureAndRammingTests();
+    UnifiedContinuationTests();
+    ForwardPassageTests();
     MatchingTimeTests();
     DirectionalTravelTests();
     DenseOpeningTests();
@@ -930,6 +1086,7 @@ int main(int argc,char** argv) {
     WaypointTests();
     WallAndBombTests();
     NativeWalkingTests();
+    MovementOwnershipTests();
     IdleActuatorTests();
     AssistRegressionTests();
     const auto started = std::chrono::steady_clock::now();

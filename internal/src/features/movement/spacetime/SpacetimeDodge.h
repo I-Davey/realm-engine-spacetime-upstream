@@ -19,4 +19,12 @@ void SetMaxDistance(float tiles); float GetMaxDistance();
 void SetEnemyScale(float scale); float GetEnemyScale();
 void SetAvoidBlocks(bool enabled); bool GetAvoidBlocks();
 void SetSearchBudgetMs(float ms); float GetSearchBudgetMs();
+void SetStationaryLookRange(float value); float GetStationaryLookRange();
+void SetStationaryContactScale(float value); float GetStationaryContactScale();
+void SetStationaryHorizonMs(float value); float GetStationaryHorizonMs();
+void SetStationaryMaxDistance(float value); float GetStationaryMaxDistance();
+void SetStationaryEnemyScale(float value); float GetStationaryEnemyScale();
+void SetStationarySearchBudgetMs(float value); float GetStationarySearchBudgetMs();
+void SetBypassKey(int key); bool BypassHeld();
+void SetOverlayKey(int key);
 }

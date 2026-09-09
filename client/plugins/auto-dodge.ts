@@ -1,3 +1,4 @@
+import { movementKeyOptions } from './auto-dodge/keyOptions.js';
 import type { PluginContext } from './api.js';
 import { sendDllFeature } from './api.js';
 
@@ -34,13 +35,16 @@ export function register(ctx: PluginContext) {
   ctx.category = 'combat';
 
   function syncSpacetimeSettings() {
-    for (const k of ['spacetimeLookRange', 'spacetimeContactScale', 'spacetimeHorizonMs', 'spacetimeMaxDistance', 'spacetimeEnemyScale', 'spacetimeSearchBudgetMs'] as const)
+    for (const k of ['spacetimeLookRange', 'spacetimeContactScale', 'spacetimeHorizonMs', 'spacetimeMaxDistance', 'spacetimeEnemyScale', 'spacetimeSearchBudgetMs', 'spacetimeStationaryLookRange', 'spacetimeStationaryContactScale', 'spacetimeStationaryHorizonMs', 'spacetimeStationaryMaxDistance', 'spacetimeStationaryEnemyScale', 'spacetimeStationarySearchBudgetMs'] as const)
       sendDllFeature(k, ctx.getSetting<number>(k));
+    for (const k of ['spacetimeBypassKey', 'spacetimeOverlayKey'] as const)
+      sendDllFeature(k, ctx.getSetting<string>(k));
     for (const k of ['spacetimeDebugOverlay', 'spacetimeShadowMode', 'spacetimeAvoidBlocks'] as const)
       sendDllFeature(k, ctx.getSetting<boolean>(k) ? 1 : 0);
   }
 
   function flush(forceOff = false) {
+    sendDllFeature('spacetimeBypassKey', ctx.getSetting<string>('spacetimeBypassKey'));
     const off = forceOff || !ctx.enabled;
     const mode = off ? 0 : modeToIdx(ctx.getSetting<string>('dodgeMode'));
     if (!off && ctx.getSetting<string>('dodgeMode') === 'spacetime') syncSpacetimeSettings();
@@ -123,33 +127,66 @@ export function register(ctx: PluginContext) {
     label: 'Preview only (do not move)', type: 'boolean', value: false,
   }, (v: boolean) => sendDllFeature('spacetimeShadowMode', v ? 1 : 0));
   registerModeSetting('spacetime', 'spacetimeLookRange', {
-    label: 'Projectile look range (tiles)', type: 'range', value: 16, min: 2, max: 32, step: 0.5,
+    label: 'Moving: Projectile look range (tiles)', type: 'range', value: 3.5, min: 2, max: 32, step: 0.5,
     description: 'Includes paths entering this radius during lookahead. Fast incoming shots can still be included when their current position is outside it.',
   }, (v: number) => sendDllFeature('spacetimeLookRange', v));
   registerModeSetting('spacetime', 'spacetimeContactScale', {
-    label: 'Projectile contact size (hitbox multiplier)', type: 'range', value: 1, min: 0.25, max: 3, step: 0.05,
+    label: 'Moving: Projectile contact size (hitbox multiplier)', type: 'range', value: 1, min: 0.25, max: 3, step: 0.05,
     description: 'Changes the contact size used by the planner and debug view. Player stays a point; 1× uses the captured projectile threshold.',
   }, (v: number) => sendDllFeature('spacetimeContactScale', v));
   registerModeSetting('spacetime', 'spacetimeHorizonMs', {
-    label: 'Prediction lookahead (ms)', type: 'range', value: 800, min: 400, max: 4000, step: 25,
+    label: 'Moving: Prediction lookahead (ms)', type: 'range', value: 1475, min: 400, max: 4000, step: 25,
     description: 'How far ahead to check, not how early to move. Known bombs can extend this; the in-game readout shows the effective value.',
   }, (v: number) => sendDllFeature('spacetimeHorizonMs', v));
   registerModeSetting('spacetime', 'spacetimeMaxDistance', {
-    label: 'Dodge distance budget (tiles)', type: 'range', value: 3, min: 0.25, max: 12, step: 0.25,
+    label: 'Moving: Dodge distance budget (tiles)', type: 'range', value: 4.5, min: 0.25, max: 12, step: 0.25,
     description: 'Limits the normal search; it does not force larger dodges. Known bombs can extend it to allow escape.',
   }, (v: number) => sendDllFeature('spacetimeMaxDistance', v));
   registerModeSetting('spacetime', 'spacetimeEnemyScale', {
-    label: 'Enemy avoidance size (multiplier)', type: 'range', value: 1, min: 0.1, max: 3, step: 0.05,
+    label: 'Moving: Enemy avoidance size (multiplier)', type: 'range', value: 0.2, min: 0.1, max: 3, step: 0.05,
     description: 'Changes enemy clearance in movement checks and the overlay. Harmless scenery keeps its physical size.',
   }, (v: number) => sendDllFeature('spacetimeEnemyScale', v));
   registerModeSetting('spacetime', 'spacetimeAvoidBlocks', {
-    label: 'Steer around harmless blocks while walking', type: 'boolean', value: false,
+    label: 'Moving: Steer around harmless blocks while walking', type: 'boolean', value: false,
     description: 'Off: leave harmless collisions to your walking input. Dodge routes still respect walls; damaging ground stays protected.',
   }, (v: boolean) => sendDllFeature('spacetimeAvoidBlocks', v ? 1 : 0));
   registerModeSetting('spacetime', 'spacetimeSearchBudgetMs', {
-    label: 'Route search budget (ms)', type: 'range', value: 4, min: 0.5, max: 12, step: 0.5,
+    label: 'Moving: Route search budget (ms)', type: 'range', value: 8, min: 0.5, max: 12, step: 0.5,
     description: 'More calculation time can find more routes but uses more of each frame. This does not change how late movement starts.',
   }, (v: number) => sendDllFeature('spacetimeSearchBudgetMs', v));
+
+  registerModeSetting('spacetime', 'spacetimeStationaryLookRange', {
+    label: 'Stationary: Projectile look range (tiles)', type: 'range', value: 10, min: 2, max: 32, step: 0.5,
+    description: 'Includes paths entering this radius during lookahead. Fast incoming shots can still be included when their current position is outside it.',
+  }, (v: number) => sendDllFeature('spacetimeStationaryLookRange', v));
+  registerModeSetting('spacetime', 'spacetimeStationaryContactScale', {
+    label: 'Stationary: Projectile contact size (hitbox multiplier)', type: 'range', value: 0.95, min: 0.25, max: 3, step: 0.05,
+    description: 'Changes the contact size used by the planner and debug view. Player stays a point; 1× uses the captured projectile threshold.',
+  }, (v: number) => sendDllFeature('spacetimeStationaryContactScale', v));
+  registerModeSetting('spacetime', 'spacetimeStationaryHorizonMs', {
+    label: 'Stationary: Prediction lookahead (ms)', type: 'range', value: 4000, min: 400, max: 4000, step: 25,
+    description: 'How far ahead to check, not how early to move. Known bombs can extend this; the in-game readout shows the effective value.',
+  }, (v: number) => sendDllFeature('spacetimeStationaryHorizonMs', v));
+  registerModeSetting('spacetime', 'spacetimeStationaryMaxDistance', {
+    label: 'Stationary: Dodge distance budget (tiles)', type: 'range', value: 6.5, min: 0.25, max: 12, step: 0.25,
+    description: 'Limits the normal search; it does not force larger dodges. Known bombs can extend it to allow escape.',
+  }, (v: number) => sendDllFeature('spacetimeStationaryMaxDistance', v));
+  registerModeSetting('spacetime', 'spacetimeStationaryEnemyScale', {
+    label: 'Stationary: Enemy avoidance size (multiplier)', type: 'range', value: 0.1, min: 0.1, max: 3, step: 0.05,
+    description: 'Changes enemy clearance in movement checks and the overlay. Harmless scenery keeps its physical size.',
+  }, (v: number) => sendDllFeature('spacetimeStationaryEnemyScale', v));
+  registerModeSetting('spacetime', 'spacetimeStationarySearchBudgetMs', {
+    label: 'Stationary: Route search budget (ms)', type: 'range', value: 8, min: 0.5, max: 12, step: 0.5,
+    description: 'More calculation time can find more routes but uses more of each frame. This does not change how late movement starts.',
+  }, (v: number) => sendDllFeature('spacetimeStationarySearchBudgetMs', v));
+  registerModeSetting('spacetime', 'spacetimeBypassKey', {
+    label: 'Hold to override dodge / Target Assist', type: 'select', value: 'SHIFT',
+    options: movementKeyOptions, description: 'Hold for manual control. Shared with Target Assist; release to resume protection.',
+  }, (v: string) => sendDllFeature('spacetimeBypassKey', v));
+  registerModeSetting('spacetime', 'spacetimeOverlayKey', {
+    label: 'Toggle movement overlay key', type: 'select', value: 'NONE',
+    options: movementKeyOptions, description: 'Press once to toggle the in-game overlay. The Auto Dodge enable/disable hotkey is set at the top of this card.',
+  }, (v: string) => sendDllFeature('spacetimeOverlayKey', v));
 
   // Cap FPS to 60 while Auto Dodge is on (the fps-setter behaviour, baked
   // in — no separate plugin needed). On → targetFrameRate 60; off →

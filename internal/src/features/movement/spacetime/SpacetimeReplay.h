@@ -46,12 +46,12 @@ struct Frame {
     Input Restore() const { Input in=input; in.world.map=&map; return in; }
 };
 struct Capture {
-    uint64_t magic=0x53545245504C3139ull; // STREPL19, same-build ABI only
-    uint32_t bytes=sizeof(Capture),version=19;
+    uint64_t magic=0x53545245504C3230ull; // STREPL20, same-build ABI only
+    uint32_t bytes=sizeof(Capture),version=20;
     bool terrainRecorded=false,hasPrevious=false;
     Audit audit{};
     Frame previous{},current{};
-    bool Compatible() const { return magic==0x53545245504C3139ull && version==19 && bytes==sizeof(Capture); }
+    bool Compatible() const { return magic==0x53545245504C3230ull && version==20 && bytes==sizeof(Capture); }
 };
 static_assert(std::is_trivially_copyable_v<Capture>);
 }
